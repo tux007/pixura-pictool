@@ -61,9 +61,9 @@ export class ExportPanel {
       add('PDF teilen', 'export-pdf-share', 'pdf', 'share')
       add('TIFF teilen', 'export-tiff-share', 'tiff', 'share')
     }
-    add('PNG laden', 'export-png-download', 'png', 'download')
-    add('PDF laden', 'export-pdf-download', 'pdf', 'download')
-    add('TIFF laden', 'export-tiff-download', 'tiff', 'download')
+    add('PNG speichern', 'export-png-download', 'png', 'download')
+    add('PDF speichern', 'export-pdf-download', 'pdf', 'download')
+    add('TIFF speichern', 'export-tiff-download', 'tiff', 'download')
 
     this.root.append(hint, field, row, this.note)
   }
