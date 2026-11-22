@@ -98,12 +98,17 @@ npx lighthouse https://<deine-seite>.netlify.app --view
 
 ## Bedienung in Kürze
 
-1. **Foto wählen** oder **Kamera**.
-2. **Kalibrieren:** entweder zwei Punkte einer bekannten Strecke (Referenz möglichst gross, ab ca. 1 m), oder im Modus „Rechteck“ die vier Ecken (oben links, oben rechts, unten rechts, unten links) einer Tür oder eines Fensters mit bekannter Breite und Höhe.
-3. **Motiv** laden, Breite oder Höhe eingeben und auf dem Foto platzieren.
-4. Optional **Linien** setzen, Varianten mit „+“ anlegen, **Export** als PNG oder PDF.
+Die App führt in **fünf Schritten** durch den Ablauf. Oben zeigt eine Schrittleiste, wo du bist (erledigte Schritte sind mit ✓ markiert, noch gesperrte ausgegraut). Unter der Leiste steht, was im Schritt zu tun ist. Unten gehst du mit „Weiter“ voran und mit „Zurück“ jederzeit einen Schritt zurück; ist „Weiter“ gesperrt, steht daneben, was noch fehlt. Erledigte Schritte lassen sich direkt in der Leiste antippen. Projekte und Anleitung liegen im Menü.
 
-Die In-App-Anleitung „So fotografierst du die Wand“ steht unter **Anleitung**.
+1. **Foto:** aufnehmen oder wählen (Startkarte mit den zuletzt bearbeiteten Projekten).
+2. **Kalibrieren** (startet von selbst): entweder zwei Punkte einer bekannten Strecke (Referenz möglichst gross, ab ca. 1 m), oder im Modus „Rechteck“ die vier Ecken (oben links, oben rechts, unten rechts, unten links) einer Tür oder eines Fensters mit bekannter Breite und Höhe.
+3. **Motiv** laden, Breite oder Höhe eingeben und auf dem Foto platzieren. Optional: mit „+“ Varianten anlegen (z. B. in 2 m, 3 m und 4 m Breite).
+4. **Abstände:** Decke, Boden und beide Innenecken als Linien setzen. Das ist Pflicht, denn nur so lassen sich die wallPen-Mindestabstände prüfen. Das Tool zeigt, ob das Motiv sie einhält, wie gross es an seiner Stelle maximal werden darf, und kann es auf das Maximum einpassen.
+5. **Export** als PNG, TIFF oder PDF; bei mehreren Varianten zusätzlich der Vergleich. Unterschreitet das Motiv einen Mindestabstand, erscheint hier eine Warnung, der Export bleibt aber möglich.
+
+Auf schmalen Bildschirmen (Handy, iPad hochkant) liegen die Bedienblätter unten über dem Foto und lassen sich einklappen, auf breiten Bildschirmen stehen sie rechts neben dem Foto.
+
+Die In-App-Anleitung „So fotografierst du die Wand“ steht im **Menü** unter **Anleitung** und auf der Startkarte.
 
 ## Technik
 

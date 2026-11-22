@@ -25,7 +25,7 @@ export function openHelp(): void {
   const flow = el(
     'p',
     undefined,
-    'Danach: Foto laden, „Kalibrieren“, Motiv laden, platzieren und Masse ablesen. Die Vorschau ist eine Näherung (Massangaben ca. ± wenige cm).',
+    'Die App führt dich in fünf Schritten: Foto, Kalibrieren, Motiv, Abstände, Export. Oben siehst du, wo du bist. Unten geht es mit „Weiter“ voran, mit „Zurück“ kannst du jederzeit einen Schritt korrigieren. Die Vorschau ist eine Näherung (Massangaben ca. ± wenige cm).',
   )
   const close = el('button', 'btn primary', 'Schliessen')
   close.type = 'button'

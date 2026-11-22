@@ -26,18 +26,13 @@ const tiffFile = async (w: number, h: number, opts = {}, name = 'bild.tif') => (
   buffer: Buffer.from(await buildTiff(gradient(w, h), w, h, opts)),
 })
 
-async function calibrated(page: Page): Promise<ViewerPage> {
+async function calibrated(page: Page): Promise<{ viewer: ViewerPage; c: { x: number; y: number } }> {
   const viewer = new ViewerPage(page)
   await viewer.goto()
   await viewer.loadPhoto(PHOTO)
   await expect(viewer.canvas).toHaveAttribute('data-scale', /.+/)
-  await viewer.calibrateButton.click()
-  const c = await viewer.center()
-  await page.mouse.click(c.x - 150, c.y - 100)
-  await page.mouse.click(c.x + 150, c.y - 100)
-  await viewer.distanceInput.fill('300')
-  await viewer.applyButton.click()
-  return viewer
+  const c = await viewer.calibrateLinear()
+  return { viewer, c }
 }
 
 test.describe('TIFF import', () => {
@@ -66,11 +61,8 @@ test.describe('TIFF import', () => {
   })
 
   test('uses a TIFF as the motif', async ({ page }) => {
-    const viewer = await calibrated(page)
-    await viewer.motifInput.setInputFiles(await tiffFile(600, 400, {}, 'motiv.tif'))
-    await expect(viewer.readout).toContainText('Breite × Höhe')
-    await viewer.widthInput.fill('100')
-    await viewer.widthInput.press('Enter')
+    const { viewer } = await calibrated(page)
+    await viewer.addMotif(await tiffFile(600, 400, {}, 'motiv.tif'), 100)
     await expect(viewer.readout).toContainText('100,0 × 66,7 cm')
     await expect.poll(() => viewer.motifPixels()).toBeGreaterThan(1000)
   })
@@ -99,9 +91,10 @@ test.describe('TIFF import', () => {
 
 test.describe('TIFF export', () => {
   test('downloads a compressed TIFF that decodes back to the preview', async ({ page }) => {
-    await calibrated(page)
-    await page.getByTestId('motif-input').setInputFiles(PHOTO)
-    await page.getByTestId('export').click()
+    const { viewer, c } = await calibrated(page)
+    await viewer.addMotif(PHOTO, 100)
+    await viewer.setGuides(c, { ceiling: -200, floor: 200, left: -300, right: 250 })
+    await viewer.goTo('export')
 
     const [dl] = await Promise.all([
       page.waitForEvent('download'),

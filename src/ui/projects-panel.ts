@@ -42,6 +42,7 @@ export class ProjectsPanel {
   constructor(
     private api: ProjectsApi,
     private currentId: () => string,
+    private onClose: () => void,
   ) {
     this.root.setAttribute('aria-label', 'Projekte')
     this.root.hidden = true
@@ -57,7 +58,11 @@ export class ProjectsPanel {
         location.reload()
       }),
     )
-    this.root.append(hint, this.list, this.note, clear)
+    const close = el('button', 'btn', 'Schliessen')
+    close.type = 'button'
+    close.dataset.testid = 'projects-close'
+    close.addEventListener('click', () => this.onClose())
+    this.root.append(hint, this.list, this.note, clear, close)
   }
 
   show(visible: boolean): void {

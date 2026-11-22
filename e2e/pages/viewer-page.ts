@@ -6,6 +6,16 @@ export interface ViewState {
   ty: number
 }
 
+export type StepName = 'photo' | 'calibrate' | 'motif' | 'distances' | 'export'
+
+// Guide lines as offsets from the view centre in cm (1 screen pixel = 1 cm after calibrateLinear).
+export interface Lines {
+  ceiling?: number
+  floor?: number
+  left?: number
+  right?: number
+}
+
 export class ViewerPage {
   readonly canvas: Locator
   readonly fileInput: Locator
@@ -21,7 +31,8 @@ export class ViewerPage {
   readonly readout: Locator
 
   constructor(readonly page: Page) {
-    this.calibrateButton = page.getByRole('button', { name: 'Kalibrieren' })
+    // entering the calibration step starts the assistant
+    this.calibrateButton = page.getByTestId('step-calibrate')
     this.motifInput = page.getByTestId('motif-input')
     this.distanceInput = page.getByLabel('Echte Distanz')
     this.applyButton = page.getByRole('button', { name: 'Übernehmen' })
@@ -33,6 +44,47 @@ export class ViewerPage {
     this.fileInput = page.getByTestId('file-input')
     this.fitButton = page.getByRole('button', { name: 'Einpassen' })
     this.alert = page.getByRole('alert')
+  }
+
+  async goTo(step: StepName): Promise<void> {
+    await this.page.getByTestId(`step-${step}`).click()
+  }
+
+  async openProjects(): Promise<void> {
+    await this.page.getByTestId('menu').click()
+    await this.page.getByTestId('menu-projects').click()
+  }
+
+  // Two taps 300 screen px apart for 300 cm: afterwards 1 screen pixel = 1 cm.
+  async calibrateLinear(distance = '300'): Promise<{ x: number; y: number }> {
+    await this.calibrateButton.click()
+    const c = await this.center()
+    await this.page.mouse.click(c.x - 150, c.y - 100)
+    await this.page.mouse.click(c.x + 150, c.y - 100)
+    await this.distanceInput.fill(distance)
+    await this.applyButton.click()
+    return c
+  }
+
+  async addMotif(file: string | { name: string; mimeType: string; buffer: Buffer }, widthCm?: number): Promise<void> {
+    await this.goTo('motif')
+    await this.motifInput.setInputFiles(file)
+    if (widthCm !== undefined) {
+      await this.widthInput.fill(String(widthCm))
+      await this.widthInput.press('Enter')
+    }
+  }
+
+  async setGuides(c: { x: number; y: number }, g: Lines): Promise<void> {
+    await this.goTo('distances')
+    const tap = async (kind: string, x: number, y: number): Promise<void> => {
+      await this.page.getByTestId(`set-${kind}`).click()
+      await this.page.mouse.click(x, y)
+    }
+    if (g.ceiling !== undefined) await tap('ceiling', c.x - 300, c.y + g.ceiling)
+    if (g.floor !== undefined) await tap('floor', c.x - 300, c.y + g.floor)
+    if (g.left !== undefined) await tap('left', c.x + g.left, c.y + 150)
+    if (g.right !== undefined) await tap('right', c.x + g.right, c.y + 150)
   }
 
   async goto(): Promise<void> {

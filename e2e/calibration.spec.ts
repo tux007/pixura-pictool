@@ -1,9 +1,9 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { ViewerPage } from './pages/viewer-page'
 
 const PHOTO = 'e2e/fixtures/wall.png'
 
-async function loaded(page: import('@playwright/test').Page): Promise<ViewerPage> {
+async function loaded(page: Page): Promise<ViewerPage> {
   const viewer = new ViewerPage(page)
   await viewer.goto()
   await viewer.loadPhoto(PHOTO)
@@ -32,10 +32,7 @@ test.describe('calibration and motif', () => {
     const pxPerCm = Number(await viewer.canvas.getAttribute('data-px-per-cm'))
     expect(pxPerCm).toBeCloseTo(1 / scale, 2)
 
-    await viewer.motifInput.setInputFiles(PHOTO)
-    await expect(viewer.readout).toContainText('Breite × Höhe')
-    await viewer.widthInput.fill('100')
-    await viewer.widthInput.press('Enter')
+    await viewer.addMotif(PHOTO, 100)
     await expect(viewer.readout).toContainText('100,0 × 66,7 cm')
 
     await page.getByTestId('lock').click()
@@ -64,19 +61,14 @@ test.describe('calibration and motif', () => {
     await expect(page.getByText('Distanz grösser als 0')).toBeVisible()
     await viewer.cancelButton.click()
     await expect(viewer.canvas).not.toHaveAttribute('data-px-per-cm', /.+/)
-    await expect(page.getByRole('button', { name: 'Motiv', exact: true })).toBeDisabled()
+    await expect(page.getByTestId('step-motif')).toHaveAttribute('data-state', 'locked')
   })
 
   test('draws the motif through WebGL after a linear calibration', async ({ page }) => {
     const viewer = await loaded(page)
-    await viewer.calibrateButton.click()
-    const c = await viewer.center()
-    await page.mouse.click(c.x - 150, c.y)
-    await page.mouse.click(c.x + 150, c.y)
-    await viewer.distanceInput.fill('3 m')
-    await viewer.applyButton.click()
+    await viewer.calibrateLinear('3 m')
     expect(await viewer.motifPixels()).toBe(0)
-    await viewer.motifInput.setInputFiles(PHOTO)
+    await viewer.addMotif(PHOTO)
     await expect.poll(() => viewer.motifPixels()).toBeGreaterThan(1000)
   })
 })
@@ -84,7 +76,7 @@ test.describe('calibration and motif', () => {
 test.describe('perspective calibration', () => {
   test.use({ viewport: { width: 1280, height: 1200 } })
 
-  async function pickCorners(page: import('@playwright/test').Page, viewer: ViewerPage, order: number[]): Promise<void> {
+  async function pickCorners(page: Page, viewer: ViewerPage, order: number[]): Promise<void> {
     const c = await viewer.center()
     const corners = [
       [-200, -90],
@@ -113,7 +105,7 @@ test.describe('perspective calibration', () => {
     await expect(viewer.canvas).toHaveAttribute('data-calibration', 'perspective')
     await expect(page.getByText('Perspektive 200,0 × 100,0 cm')).toBeVisible()
 
-    await viewer.motifInput.setInputFiles(PHOTO)
+    await viewer.addMotif(PHOTO)
     await expect(viewer.readout).toContainText('Breite × Höhe')
     await expect.poll(() => viewer.motifPixels()).toBeGreaterThan(1000)
 
@@ -144,5 +136,15 @@ test.describe('perspective calibration', () => {
     await page.getByTestId('mode-perspective').click()
     await expect(viewer.applyButton).toBeDisabled()
     await expect(page.getByText('Ecke „oben links“')).toBeVisible()
+  })
+
+  test('only shows the fields of the chosen mode', async ({ page }) => {
+    const viewer = await loaded(page)
+    await viewer.calibrateButton.click()
+    await expect(page.getByLabel('Echte Distanz')).toBeVisible()
+    await expect(page.getByLabel('Rechteck-Breite')).toBeHidden()
+    await page.getByTestId('mode-perspective').click()
+    await expect(page.getByLabel('Echte Distanz')).toBeHidden()
+    await expect(page.getByLabel('Rechteck-Breite')).toBeVisible()
   })
 })

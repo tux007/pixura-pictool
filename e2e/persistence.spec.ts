@@ -3,22 +3,16 @@ import { ViewerPage } from './pages/viewer-page'
 
 const PHOTO = 'e2e/fixtures/wall.png'
 
-async function setup(page: Page): Promise<ViewerPage> {
+// 1 screen pixel = 1 cm, motif 100 cm wide in the middle of the view
+async function setup(page: Page): Promise<{ viewer: ViewerPage; c: { x: number; y: number } }> {
   const viewer = new ViewerPage(page)
   await viewer.goto()
   await viewer.loadPhoto(PHOTO)
   await expect(viewer.canvas).toHaveAttribute('data-scale', /.+/)
-  await viewer.calibrateButton.click()
-  const c = await viewer.center()
-  await page.mouse.click(c.x - 150, c.y - 100)
-  await page.mouse.click(c.x + 150, c.y - 100)
-  await viewer.distanceInput.fill('300')
-  await viewer.applyButton.click()
-  await viewer.motifInput.setInputFiles(PHOTO)
-  await viewer.widthInput.fill('100')
-  await viewer.widthInput.press('Enter')
+  const c = await viewer.calibrateLinear()
+  await viewer.addMotif(PHOTO, 100)
   await expect(viewer.readout).toContainText('100,0 × 66,7 cm')
-  return viewer
+  return { viewer, c }
 }
 
 // Counts stored projects without creating the database as a side effect.
@@ -64,9 +58,11 @@ const storedTolerance = (page: Page): Promise<number | null> =>
 
 const rows = (page: Page) => page.getByTestId('project-row')
 
+const WALL = { ceiling: -200, floor: 200, left: -300, right: 250 }
+
 test.describe('projects', () => {
   test('autosaves and reopens a project after a reload, also offline', async ({ page, context }) => {
-    const viewer = await setup(page)
+    const { viewer } = await setup(page)
     await expect.poll(() => stored(page), { timeout: 20_000 }).toBe(1)
 
     await page.evaluate(() => navigator.serviceWorker.ready)
@@ -74,44 +70,43 @@ test.describe('projects', () => {
     await context.setOffline(true)
     await page.reload()
 
-    await page.getByTestId('projects').click()
+    await viewer.openProjects()
     await expect(rows(page)).toHaveCount(1)
     await expect(rows(page).first()).toContainText('1 Variante')
     await page.getByTestId('project-open').click()
 
     await expect(viewer.canvas).toHaveAttribute('data-calibration', 'linear')
     await expect(viewer.canvas).toHaveAttribute('data-px-per-cm', /.+/)
-    await page.getByTestId('projects').click()
+    // a motif but no guide lines yet: the project continues on the distances step
+    await expect(page.getByTestId('step-distances')).toHaveAttribute('data-state', 'current')
+    await viewer.goTo('motif')
     await expect(viewer.readout).toContainText('100,0 × 66,7 cm')
     await expect.poll(() => viewer.motifPixels()).toBeGreaterThan(1000)
   })
 
   test('keeps guide lines and the tolerance with the project', async ({ page }) => {
-    const viewer = await setup(page)
-    const c = await viewer.center()
-    await page.getByTestId('guides').click()
-    await page.getByTestId('set-floor').click()
-    await page.mouse.click(c.x - 300, c.y + 200)
+    const { viewer, c } = await setup(page)
+    await viewer.setGuides(c, WALL)
     await expect(page.getByTestId('guide-floor')).toContainText('167 cm')
-    await page.getByTestId('export').click()
+    await viewer.goTo('export')
     await page.getByTestId('tolerance').fill('2,5')
     await page.getByTestId('tolerance').press('Enter')
     await expect.poll(() => storedTolerance(page), { timeout: 20_000 }).toBe(2.5)
 
     await page.reload()
-    await page.getByTestId('projects').click()
+    await viewer.openProjects()
     await page.getByTestId('project-open').click()
-    await page.getByTestId('guides').click()
-    await expect(page.getByTestId('guide-floor')).toContainText('167 cm')
-    await page.getByTestId('export').click()
+    // everything is done: the project opens on the export step
+    await expect(page.getByTestId('step-export')).toHaveAttribute('data-state', 'current')
     await expect(page.getByTestId('tolerance')).toHaveValue('2,5')
-    expect(viewer).toBeTruthy()
+    await viewer.goTo('distances')
+    await expect(page.getByTestId('guide-floor')).toContainText('167 cm')
   })
 
   test('duplicates and deletes projects', async ({ page }) => {
-    await setup(page)
+    const { viewer } = await setup(page)
     await expect.poll(() => stored(page), { timeout: 20_000 }).toBe(1)
-    await page.getByTestId('projects').click()
+    await viewer.openProjects()
     await expect(rows(page)).toHaveCount(1)
 
     await page.getByTestId('project-duplicate').click()
@@ -128,24 +123,24 @@ test.describe('projects', () => {
   })
 
   test('deletes all local data after a second confirmation', async ({ page }) => {
-    await setup(page)
+    const { viewer } = await setup(page)
     await expect.poll(() => stored(page), { timeout: 20_000 }).toBe(1)
-    await page.getByTestId('projects').click()
+    await viewer.openProjects()
     await page.getByTestId('clear-all').click()
     await expect(page.getByTestId('clear-all')).toHaveText('Wirklich alles löschen?')
     await page.getByTestId('clear-all').click()
 
     await page.waitForLoadState('load')
-    await expect(page.getByText('Wandfoto laden, um zu beginnen.')).toBeVisible()
+    await expect(page.getByTestId('start-card')).toBeVisible()
     expect(await stored(page)).toBe(0)
-    await page.getByTestId('projects').click()
+    await viewer.openProjects()
     await expect(page.getByText('Noch keine gespeicherten Projekte.')).toBeVisible()
   })
 
   test('a deleted open project is not saved again', async ({ page }) => {
-    await setup(page)
+    const { viewer } = await setup(page)
     await expect.poll(() => stored(page), { timeout: 20_000 }).toBe(1)
-    await page.getByTestId('projects').click()
+    await viewer.openProjects()
     await page.getByTestId('project-delete').click()
     await page.getByTestId('project-delete').click()
     await expect(page.getByText('Noch keine gespeicherten Projekte.')).toBeVisible()
@@ -157,7 +152,8 @@ test.describe('projects', () => {
 test.describe('help', () => {
   test('explains how to photograph the wall', async ({ page }) => {
     await page.goto('/')
-    await page.getByTestId('help').click()
+    await page.getByTestId('menu').click()
+    await page.getByTestId('menu-help').click()
     const dialog = page.getByTestId('help-dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog).toContainText('So fotografierst du die Wand')

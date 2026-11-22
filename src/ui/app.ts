@@ -7,7 +7,7 @@ import { MotifRenderer } from '../gl/motif-renderer'
 import { LoadError, loadImage } from '../image/load'
 import { imageToWall, wallToImage, wallWidthCm } from '../math/calibration'
 import { checkRules, DEFAULT_RULES, describeCheck } from '../math/clearance'
-import { GUIDE_SHORT, guideDistances } from '../math/guides'
+import { GUIDE_KINDS, GUIDE_SHORT, guideDistances } from '../math/guides'
 import { MAX_SIZE } from '../math/motif'
 import { formatNumber } from '../math/units'
 import { activeMotif, MAX_VARIANTS, type Calibration, type Project } from '../model/types'
@@ -18,10 +18,24 @@ import { el } from './dom'
 import { ExportPanel, type ExportKind, type ExportMode } from './export-panel'
 import { GuideLayer } from './guide-layer'
 import { GuidesPanel } from './guides-panel'
+import { openHelp } from './help'
 import { MotifLayer } from './motif-layer'
 import { MotifPanel } from './motif-panel'
-import { openHelp } from './help'
 import { ProjectsPanel } from './projects-panel'
+import { StartCard } from './start-card'
+import {
+  canEnter,
+  clampStep,
+  firstIncomplete,
+  LINES_NEEDED,
+  nextOf,
+  prevOf,
+  stateOf,
+  STEPS,
+  stepOf,
+  type Progress,
+  type StepId,
+} from './steps'
 import { openCompare, VariantTabs } from './variants'
 import { Viewport } from './viewport'
 
@@ -63,31 +77,79 @@ function fileInput(testId: string, capture?: string): HTMLInputElement {
   return input
 }
 
-function button(label: string, testId: string): HTMLButtonElement {
-  const b = el('button', 'btn', label)
+// On narrow screens the panels sit on top of the photo: let the user fold them away.
+function collapsible(root: HTMLElement): void {
+  const toggle = el('button', 'sheet-toggle', 'Einklappen')
+  toggle.type = 'button'
+  toggle.dataset.testid = 'sheet-toggle'
+  toggle.setAttribute('aria-expanded', 'true')
+  toggle.addEventListener('click', () => {
+    const folded = root.classList.toggle('collapsed')
+    toggle.textContent = folded ? 'Ausklappen' : 'Einklappen'
+    toggle.setAttribute('aria-expanded', String(!folded))
+  })
+  root.prepend(toggle)
+}
+
+function button(label: string, testId: string, cls = 'btn'): HTMLButtonElement {
+  const b = el('button', cls, label)
   b.type = 'button'
   b.dataset.testid = testId
   return b
 }
 
-type Sheet = 'motif' | 'guides' | 'export' | 'projects'
-
 export function mountApp(root: HTMLElement): void {
-  const bar = el('header', 'bar')
-  const pick = button('Foto wählen', 'pick')
-  const camera = button('Kamera', 'camera')
-  const calibrate = button('Kalibrieren', 'calibrate')
-  const motifBtn = button('Motiv', 'motif')
-  const guidesBtn = button('Linien', 'guides')
-  const exportBtn = button('Export', 'export')
-  const compareBtn = button('Vergleich', 'compare')
-  const projectsBtn = button('Projekte', 'projects')
-  const helpBtn = button('Anleitung', 'help')
-  const fit = button('Einpassen', 'fit')
-  const info = el('span', 'info')
+  // --- header: step bar and menu ---
+  const top = el('header', 'top')
   const title = el('h1', 'sr-only', 'Pixura Wandvorschau')
-  bar.append(title, pick, camera, calibrate, motifBtn, guidesBtn, exportBtn, compareBtn, projectsBtn, helpBtn, fit, info)
+  const stepNav = el('nav', 'steps')
+  stepNav.setAttribute('aria-label', 'Schritte')
+  const stepList = el('ol')
+  stepNav.append(stepList)
+  const chips = new Map<StepId, { button: HTMLButtonElement; num: HTMLElement }>()
+  STEPS.forEach((s, i) => {
+    const li = el('li')
+    const b = el('button', 'step')
+    b.type = 'button'
+    b.dataset.testid = `step-${s.id}`
+    const num = el('span', 'num', String(i + 1))
+    b.append(num, el('span', 'lbl', s.label))
+    li.append(b)
+    stepList.append(li)
+    chips.set(s.id, { button: b, num })
+  })
+  const menuBtn = button('Menü', 'menu')
+  menuBtn.setAttribute('aria-haspopup', 'true')
+  menuBtn.setAttribute('aria-expanded', 'false')
+  const menu = el('div', 'menu-pop')
+  menu.hidden = true
+  const menuProjects = button('Projekte', 'menu-projects')
+  const menuHelp = button('Anleitung', 'menu-help')
+  menu.append(menuProjects, menuHelp)
+  top.append(title, stepNav, menuBtn, menu)
 
+  // --- guidance: what to do in this step ---
+  const guide = el('section', 'guide')
+  guide.setAttribute('aria-label', 'Aktueller Schritt')
+  const guideText = el('div', 'guide-text')
+  const guideStep = el('p', 'guide-step')
+  const guideTitle = el('h2', 'guide-title')
+  const guideHint = el('p', 'guide-hint')
+  guideHint.dataset.testid = 'step-hint'
+  guideHint.setAttribute('aria-live', 'polite')
+  guideText.append(guideStep, guideTitle, guideHint)
+  const guideActions = el('div', 'guide-actions')
+  const pick = button('Anderes Foto wählen', 'pick')
+  const camera = button('Neue Aufnahme', 'camera')
+  const calibrate = button('Kalibrieren starten', 'calibrate', 'btn primary')
+  const motifBtn = button('Motiv wählen', 'motif', 'btn primary')
+  const compareBtn = button('Varianten vergleichen', 'compare')
+  const info = el('span', 'info')
+  info.dataset.testid = 'info'
+  guideActions.append(pick, camera, calibrate, motifBtn, compareBtn, info)
+  guide.append(guideText, guideActions)
+
+  // --- stage ---
   const stage = el('main', 'stage')
   // bottom to top: wall photo, motif (WebGL), transparent overlay that takes the input
   const base = el('canvas', 'layer')
@@ -98,20 +160,25 @@ export function mountApp(root: HTMLElement): void {
   canvas.dataset.testid = 'viewport'
   canvas.setAttribute('role', 'img')
   canvas.setAttribute('aria-label', 'Wandfoto')
-  const empty = el(
-    'p',
-    'empty',
-    'Wandfoto laden, um zu beginnen. Tipps zum Fotografieren stehen unter „Anleitung“.',
-  )
   const banner = el('p', 'banner')
   banner.setAttribute('role', 'alert')
   banner.hidden = true
-  stage.append(base, glCanvas, canvas, empty, banner)
+  const fit = button('Einpassen', 'fit', 'btn fit')
+  stage.append(base, glCanvas, canvas, banner, fit)
+
+  // --- footer: back / next ---
+  const footer = el('footer', 'nav')
+  const back = button('', 'back')
+  const navHint = el('p', 'nav-hint')
+  navHint.dataset.testid = 'nav-hint'
+  navHint.setAttribute('role', 'status')
+  const next = button('', 'next')
+  footer.append(back, navHint, next)
 
   const fileEl = fileInput('file-input')
   const cameraEl = fileInput('camera-input', 'environment')
   const motifEl = fileInput('motif-input')
-  root.append(bar, stage, fileEl, cameraEl, motifEl)
+  root.append(top, guide, stage, footer, fileEl, cameraEl, motifEl)
 
   const project: Project = {
     id: newId(),
@@ -125,7 +192,9 @@ export function mountApp(root: HTMLElement): void {
     showDims: true,
     toleranceCm: 5,
   }
-  let sheet: Sheet = 'motif'
+  let step: StepId = 'photo'
+  let showProjects = false
+  let menuOpen = false
   let exportGl: MotifRenderer | null = null
 
   const viewport = new Viewport(canvas, base)
@@ -138,6 +207,7 @@ export function mountApp(root: HTMLElement): void {
   const syncPanels = (): void => {
     panel.sync()
     guidesPanel.sync()
+    renderGuide()
     scheduleSave()
   }
   const panel = new MotifPanel(
@@ -145,6 +215,7 @@ export function mountApp(root: HTMLElement): void {
     () => {
       viewport.redraw()
       guidesPanel.sync()
+      renderGuide()
       scheduleSave()
     },
     () => removeVariant(),
@@ -174,7 +245,21 @@ export function mountApp(root: HTMLElement): void {
       },
     },
     () => project.id,
+    () => {
+      showProjects = false
+      refresh()
+    },
   )
+  const startCard = new StartCard({
+    pick: () => fileEl.click(),
+    camera: () => cameraEl.click(),
+    help: openHelp,
+    open: (id) => openProject(id),
+    allProjects: () => {
+      showProjects = true
+      refresh()
+    },
+  })
   const tabs = new VariantTabs(
     project,
     (i) => {
@@ -190,36 +275,158 @@ export function mountApp(root: HTMLElement): void {
   viewport.addLayer(guideLayer)
   viewport.addLayer(motifLayer)
   viewport.addLayer(flow)
-  stage.append(tabs.root, panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root)
+  stage.append(startCard.root, tabs.root, panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root)
+  for (const sheet of [panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root]) collapsible(sheet)
+
+  // --- step flow ---
+
+  const progress = (): Progress => ({
+    hasWall: !!project.wall,
+    calibrated: !!project.wall?.calibration,
+    hasMotif: !!activeMotif(project),
+    linesSet: GUIDE_KINDS.filter((k) => project.guides[k] !== undefined).length,
+  })
+
+  let flash = ''
+  let flashTimer = 0
+  function say(msg: string): void {
+    flash = msg
+    clearTimeout(flashTimer)
+    flashTimer = window.setTimeout(() => {
+      flash = ''
+      renderNav()
+    }, 3500)
+    renderNav()
+  }
+
+  function go(id: StepId): void {
+    if (flow.active) return say('Erst die Kalibrierung abschliessen oder abbrechen.')
+    const e = canEnter(id, progress())
+    if (!e.ok) return say(e.reason ?? '')
+    step = id
+    showProjects = false
+    // the assistant starts by itself the first time; afterwards there is a "Neu kalibrieren" button
+    if (id === 'calibrate' && !project.wall?.calibration) startCalibration()
+    refresh()
+  }
+
+  function startCalibration(): void {
+    const { wall } = project
+    if (!wall || flow.active) return
+    banner.hidden = true
+    flow.start(wall.image)
+  }
+
+  function guideTexts(p: Progress): string {
+    const m = activeMotif(project)
+    switch (step) {
+      case 'photo':
+        return p.hasWall
+          ? 'Foto geladen. Passt der Ausschnitt? Dann weiter mit „Kalibrieren“, sonst ein anderes Foto wählen oder aufnehmen.'
+          : 'Fotografiere die Wand frontal und ganz (nicht im Ultraweitwinkel) oder wähle ein vorhandenes Foto.'
+      case 'calibrate':
+        if (flow.active) return 'Folge der Anleitung im Fenster: Punkte antippen, echte Distanz eingeben, „Übernehmen“.'
+        return p.calibrated
+          ? 'Kalibriert. Weiter mit dem Motiv, oder neu kalibrieren, falls das Ergebnis nicht stimmt.'
+          : 'Zeige dem Tool ein bekanntes Mass: zwei Punkte einer Strecke (z. B. Massband) oder die vier Ecken eines Rechtecks (Tür, Fenster).'
+      case 'motif':
+        return m
+          ? 'Schiebe das Motiv an die richtige Stelle und passe die Grösse an (Eckgriffe oder Masse). Optional: mit „+“ weitere Varianten anlegen, z. B. in anderer Grösse.'
+          : 'Wähle das Motiv, das gedruckt werden soll (JPEG, PNG oder TIFF).'
+      case 'distances': {
+        const base = 'Setze Decke, Boden und beide Innenecken, damit das Tool die wallPen-Mindestabstände prüft.'
+        if (p.linesSet < LINES_NEEDED) return `${base} Noch ${LINES_NEEDED - p.linesSet} von ${LINES_NEEDED} Linien offen.`
+        const r = m ? checkRules(m.box, project.guides, project.rules) : null
+        if (r?.state === 'violated') return `${base} Achtung: Das Motiv unterschreitet einen Mindestabstand.`
+        return `${base} Alle Linien sind gesetzt, weiter zum Export.`
+      }
+      case 'export': {
+        const r = m ? checkRules(m.box, project.guides, project.rules) : null
+        if (r?.state === 'violated') {
+          return 'Achtung: Das Motiv unterschreitet einen wallPen-Mindestabstand. Zurück zu „Abstände“, um es zu korrigieren, oder trotzdem exportieren.'
+        }
+        return 'Prüfe das Ergebnis und exportiere die aktive Variante als PNG, PDF oder TIFF. Optional: Varianten vergleichen.'
+      }
+    }
+  }
+
+  function renderGuide(): void {
+    const p = progress()
+    const idx = STEPS.findIndex((s) => s.id === step)
+    guideStep.textContent = `Schritt ${idx + 1} von ${STEPS.length}`
+    guideTitle.textContent = stepOf(step).title
+    guideHint.textContent = guideTexts(p)
+    const violated = (step === 'export' || step === 'distances') && /Achtung/.test(guideHint.textContent)
+    guideHint.classList.toggle('warn', violated)
+  }
+
+  function renderNav(): void {
+    const p = progress()
+    const prev = prevOf(step)
+    const nxt = nextOf(step)
+    const locked = flow.active
+    back.hidden = !prev
+    if (prev) {
+      back.textContent = `‹ Zurück: ${stepOf(prev).label}`
+      back.setAttribute('aria-disabled', String(locked))
+    }
+    next.hidden = !nxt
+    let reason: string | null = null
+    if (nxt) {
+      const e = canEnter(nxt, p)
+      reason = locked ? 'Erst die Kalibrierung abschliessen oder abbrechen.' : e.reason
+      next.textContent = `Weiter: ${stepOf(nxt).label} ›`
+      next.setAttribute('aria-disabled', String(!e.ok || locked))
+      next.classList.toggle('primary', e.ok && !locked)
+    }
+    navHint.textContent = flash || reason || ''
+  }
 
   function refresh(): void {
     const { wall } = project
     const cal = wall?.calibration
     const motif = activeMotif(project)
     const calibrating = flow.active
+    const p = progress()
+    step = clampStep(step, p)
 
-    pick.disabled = camera.disabled = calibrating
-    calibrate.disabled = !wall || calibrating
-    motifBtn.disabled = !cal || calibrating || !renderer
-    guidesBtn.disabled = !cal || calibrating
-    exportBtn.disabled = !motif || calibrating
-    compareBtn.disabled = project.variants.length < 2 || calibrating
-    fit.disabled = !wall
-    projectsBtn.disabled = calibrating
-    guidesBtn.setAttribute('aria-pressed', String(sheet === 'guides'))
-    exportBtn.setAttribute('aria-pressed', String(sheet === 'export'))
-    projectsBtn.setAttribute('aria-pressed', String(sheet === 'projects'))
+    STEPS.forEach((s, i) => {
+      const c = chips.get(s.id)
+      if (!c) return
+      const state = stateOf(s.id, step, p)
+      c.button.dataset.state = state
+      c.num.textContent = state === 'done' ? '✓' : String(i + 1)
+      if (state === 'current') c.button.setAttribute('aria-current', 'step')
+      else c.button.removeAttribute('aria-current')
+      c.button.setAttribute('aria-disabled', String(state === 'locked' || calibrating))
+      const note = state === 'done' ? ', erledigt' : state === 'locked' ? ', noch gesperrt' : ''
+      c.button.setAttribute('aria-label', `Schritt ${i + 1}: ${s.label}${note}`)
+    })
 
-    motifLayer.enabled = !calibrating
+    pick.hidden = camera.hidden = !(step === 'photo' && wall)
+    calibrate.hidden = !(step === 'calibrate' && wall && !calibrating)
+    calibrate.textContent = cal ? 'Neu kalibrieren' : 'Kalibrieren starten'
+    calibrate.classList.toggle('primary', !cal)
+    motifBtn.hidden = !(step === 'motif' && cal)
+    motifBtn.textContent = motif ? 'Anderes Motiv wählen' : 'Motiv wählen'
+    motifBtn.classList.toggle('primary', !motif)
+    motifBtn.disabled = !renderer
+    compareBtn.hidden = !(step === 'export' && project.variants.length >= 2)
+    fit.hidden = !wall
+    startCard.show(!wall)
+
+    const view = step === 'motif' || step === 'distances'
+    motifLayer.enabled = view && !calibrating
     guideLayer.enabled = !calibrating
-    guideLayer.editable = sheet === 'guides'
-    panel.show(!!motif && sheet === 'motif' && !calibrating)
-    guidesPanel.show(!!cal && sheet === 'guides' && !calibrating)
-    exportPanel.show(!!motif && sheet === 'export' && !calibrating)
-    projectsPanel.show(sheet === 'projects' && !calibrating)
-    tabs.root.hidden = !motif || calibrating
+    guideLayer.editable = step === 'distances' && !showProjects
+    panel.show(!!motif && step === 'motif' && !calibrating && !showProjects)
+    guidesPanel.show(!!cal && step === 'distances' && !calibrating && !showProjects)
+    exportPanel.show(!!motif && step === 'export' && !calibrating && !showProjects)
+    projectsPanel.show(showProjects && !calibrating)
+    tabs.root.hidden = !motif || calibrating || step === 'photo' || step === 'calibrate'
     tabs.render()
     guidesPanel.sync()
+    menuProjects.setAttribute('aria-pressed', String(showProjects))
 
     const parts: string[] = []
     if (wall) parts.push(`${wall.width} × ${wall.height} px`)
@@ -232,6 +439,8 @@ export function mountApp(root: HTMLElement): void {
     else delete canvas.dataset.calibration
     if (cal?.mode === 'linear') canvas.dataset.pxPerCm = cal.pxPerCm.toFixed(4)
     else delete canvas.dataset.pxPerCm
+    renderGuide()
+    renderNav()
     viewport.redraw()
     scheduleSave()
   }
@@ -273,9 +482,9 @@ export function mountApp(root: HTMLElement): void {
     project.active = 0
     project.guides = {}
     project.rules = { ...DEFAULT_RULES }
-    sheet = 'motif'
+    step = 'photo'
+    showProjects = false
     viewport.setImage(image)
-    empty.hidden = true
     refresh()
   }
 
@@ -308,7 +517,6 @@ export function mountApp(root: HTMLElement): void {
       ]
       project.active = 0
     }
-    sheet = 'motif'
     refresh()
   }
 
@@ -402,10 +610,11 @@ export function mountApp(root: HTMLElement): void {
     project.rules = rec.rules ?? { ...DEFAULT_RULES }
     project.showDims = rec.showDims
     project.toleranceCm = rec.toleranceCm
-    sheet = 'motif'
+    showProjects = false
     banner.hidden = true
     viewport.setImage(wallImage)
-    empty.hidden = true
+    // continue where the work stopped
+    step = firstIncomplete(progress())
     refresh()
   }
 
@@ -414,7 +623,6 @@ export function mountApp(root: HTMLElement): void {
     if (!m || project.variants.length >= MAX_VARIANTS) return
     project.variants.push({ ...m, box: { ...m.box } })
     project.active = project.variants.length - 1
-    sheet = 'motif'
     refresh()
   }
 
@@ -514,31 +722,50 @@ export function mountApp(root: HTMLElement): void {
     return `Teilen nicht möglich, ${label} wurde gespeichert.`
   }
 
+  // --- events ---
+
+  for (const s of STEPS) chips.get(s.id)?.button.addEventListener('click', () => go(s.id))
+  back.addEventListener('click', () => {
+    const prev = prevOf(step)
+    if (prev) go(prev)
+  })
+  next.addEventListener('click', () => {
+    const nxt = nextOf(step)
+    if (nxt) go(nxt)
+  })
+
+  const setMenu = (open: boolean): void => {
+    menuOpen = open
+    menu.hidden = !open
+    menuBtn.setAttribute('aria-expanded', String(open))
+  }
+  menuBtn.addEventListener('click', () => setMenu(!menuOpen))
+  document.addEventListener('click', (e) => {
+    if (menuOpen && !top.contains(e.target as Node)) setMenu(false)
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menuOpen) setMenu(false)
+  })
+  menuProjects.addEventListener('click', () => {
+    showProjects = !showProjects
+    setMenu(false)
+    refresh()
+  })
+  menuHelp.addEventListener('click', () => {
+    setMenu(false)
+    openHelp()
+  })
+
   pick.addEventListener('click', () => fileEl.click())
   camera.addEventListener('click', () => cameraEl.click())
   motifBtn.addEventListener('click', () => motifEl.click())
   fit.addEventListener('click', () => viewport.fit())
-  guidesBtn.addEventListener('click', () => {
-    sheet = sheet === 'guides' ? 'motif' : 'guides'
-    refresh()
-  })
-  exportBtn.addEventListener('click', () => {
-    sheet = sheet === 'export' ? 'motif' : 'export'
-    refresh()
-  })
   compareBtn.addEventListener('click', () => {
     const gl = getExportGl()
     if (gl) openCompare(project, gl)
   })
-  projectsBtn.addEventListener('click', () => {
-    sheet = sheet === 'projects' ? 'motif' : 'projects'
-    refresh()
-  })
-  helpBtn.addEventListener('click', openHelp)
   calibrate.addEventListener('click', () => {
-    if (!project.wall) return
-    banner.hidden = true
-    flow.start(project.wall.image)
+    startCalibration()
     refresh()
   })
   fileEl.addEventListener('change', () => void onWall(fileEl))

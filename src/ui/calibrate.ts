@@ -43,7 +43,7 @@ export class CalibrationFlow implements Layer {
   private running = false
 
   private sheet = el('section', 'sheet')
-  private step = el('p', 'step')
+  private step = el('p', 'sheet-step')
   private modeLinear = el('button', 'btn', 'Strecke (2 Punkte)')
   private modePersp = el('button', 'btn', 'Rechteck (4 Punkte)')
   private distance = el('input')
