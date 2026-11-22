@@ -82,6 +82,20 @@ canvas {
   touch-action: none;
 }
 
+canvas.layer {
+  pointer-events: none;
+}
+
+.quality {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #3a3a3a;
+}
+
+.quality:empty {
+  display: none;
+}
+
 .empty {
   position: absolute;
   inset: 0;
@@ -154,6 +168,11 @@ canvas {
 
 .sheet .btn.primary {
   background: #fca311;
+}
+
+.sheet .btn[aria-pressed='true'] {
+  background: #14213d;
+  color: #fff;
 }
 
 .sheet .btn:disabled {
@@ -249,4 +268,22 @@ canvas {
   position: static;
   width: 100%;
   height: 100%;
+}
+
+/* Wide screens: controls dock to the right so the photo stays visible. */
+@media (min-width: 900px) {
+  .sheet {
+    left: auto;
+    right: 8px;
+    top: 8px;
+    bottom: 8px;
+    width: 340px;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+  }
+
+  .loupe.right {
+    right: 360px;
+  }
 }

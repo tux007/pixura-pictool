@@ -24,6 +24,7 @@ interface Pinch {
 
 export class Viewport {
   private ctx: CanvasRenderingContext2D
+  private baseCtx: CanvasRenderingContext2D
   private img: ImageBitmap | null = null
   private view: View = { scale: 1, tx: 0, ty: 0 }
   private fitted = true
@@ -65,10 +66,20 @@ export class Viewport {
     return toImage(this.view, { x: this.size.w / 2, y: this.size.h / 2 })
   }
 
-  constructor(private canvas: HTMLCanvasElement) {
+  getDpr(): number {
+    return this.dpr
+  }
+
+  // `canvas` is the transparent top layer (input + overlays), `base` shows the wall photo.
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private base: HTMLCanvasElement,
+  ) {
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('Canvas 2D is not available')
+    const baseCtx = base.getContext('2d')
+    if (!ctx || !baseCtx) throw new Error('Canvas 2D is not available')
     this.ctx = ctx
+    this.baseCtx = baseCtx
     canvas.addEventListener('pointerdown', this.onDown)
     canvas.addEventListener('pointermove', this.onMove)
     canvas.addEventListener('pointerup', this.onUp)
@@ -99,8 +110,10 @@ export class Viewport {
     const w = this.canvas.clientWidth
     const h = this.canvas.clientHeight
     this.dpr = window.devicePixelRatio || 1
-    this.canvas.width = Math.max(1, Math.round(w * this.dpr))
-    this.canvas.height = Math.max(1, Math.round(h * this.dpr))
+    for (const c of [this.canvas, this.base]) {
+      c.width = Math.max(1, Math.round(w * this.dpr))
+      c.height = Math.max(1, Math.round(h * this.dpr))
+    }
     this.size = { w, h }
     if (this.img && this.fitted) this.view = fitView(this.imgSize(), this.size)
     this.invalidate()
@@ -115,13 +128,15 @@ export class Viewport {
   }
 
   private render(): void {
-    const { ctx, view, dpr, canvas } = this
+    const { ctx, baseCtx, view, dpr, canvas } = this
+    baseCtx.setTransform(1, 0, 0, 1, 0, 0)
+    baseCtx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     if (!this.img) return
-    ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.tx, dpr * view.ty)
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(this.img, 0, 0)
+    baseCtx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.tx, dpr * view.ty)
+    baseCtx.imageSmoothingQuality = 'high'
+    baseCtx.drawImage(this.img, 0, 0)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     for (const layer of this.layers) layer.draw(ctx, view)
     canvas.dataset.scale = view.scale.toFixed(4)

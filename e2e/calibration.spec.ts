@@ -66,4 +66,83 @@ test.describe('calibration and motif', () => {
     await expect(viewer.canvas).not.toHaveAttribute('data-px-per-cm', /.+/)
     await expect(page.getByRole('button', { name: 'Motiv', exact: true })).toBeDisabled()
   })
+
+  test('draws the motif through WebGL after a linear calibration', async ({ page }) => {
+    const viewer = await loaded(page)
+    await viewer.calibrateButton.click()
+    const c = await viewer.center()
+    await page.mouse.click(c.x - 150, c.y)
+    await page.mouse.click(c.x + 150, c.y)
+    await viewer.distanceInput.fill('3 m')
+    await viewer.applyButton.click()
+    expect(await viewer.motifPixels()).toBe(0)
+    await viewer.motifInput.setInputFiles(PHOTO)
+    await expect.poll(() => viewer.motifPixels()).toBeGreaterThan(1000)
+  })
+})
+
+test.describe('perspective calibration', () => {
+  test.use({ viewport: { width: 1280, height: 1200 } })
+
+  async function pickCorners(page: import('@playwright/test').Page, viewer: ViewerPage, order: number[]): Promise<void> {
+    const c = await viewer.center()
+    const corners = [
+      [-200, -90],
+      [190, -70],
+      [210, 90],
+      [-180, 80],
+    ] as const
+    for (const i of order) {
+      const o = corners[i] ?? [0, 0]
+      await page.mouse.click(c.x + o[0], c.y + o[1])
+    }
+  }
+
+  test('four corners, rectangle size, motif in perspective', async ({ page }) => {
+    const viewer = await loaded(page)
+    await viewer.calibrateButton.click()
+    await page.getByTestId('mode-perspective').click()
+    await pickCorners(page, viewer, [0, 1, 2, 3])
+    await expect(viewer.applyButton).toBeEnabled()
+
+    await page.getByLabel('Rechteck-Breite').fill('200')
+    await page.getByLabel('Rechteck-Höhe').fill('100')
+    await expect(page.getByTestId('quality')).toContainText('Kalibrierfehler')
+    await viewer.applyButton.click()
+
+    await expect(viewer.canvas).toHaveAttribute('data-calibration', 'perspective')
+    await expect(page.getByText('Perspektive 200,0 × 100,0 cm')).toBeVisible()
+
+    await viewer.motifInput.setInputFiles(PHOTO)
+    await expect(viewer.readout).toContainText('Breite × Höhe')
+    await expect.poll(() => viewer.motifPixels()).toBeGreaterThan(1000)
+
+    const before = await viewer.motifPixels()
+    await viewer.widthInput.fill('50')
+    await viewer.widthInput.press('Enter')
+    await expect(viewer.readout).toContainText('50,0 × 33,3 cm')
+    await expect.poll(() => viewer.motifPixels()).toBeLessThan(before)
+  })
+
+  test('rejects corners in the wrong order', async ({ page }) => {
+    const viewer = await loaded(page)
+    await viewer.calibrateButton.click()
+    await page.getByTestId('mode-perspective').click()
+    await pickCorners(page, viewer, [0, 3, 2, 1])
+    await page.getByLabel('Rechteck-Breite').fill('200')
+    await page.getByLabel('Rechteck-Höhe').fill('100')
+    await expect(page.getByText('gegen den Uhrzeigersinn')).toBeVisible()
+    await viewer.applyButton.click()
+    await expect(viewer.canvas).not.toHaveAttribute('data-calibration', /.+/)
+  })
+
+  test('switching the mode starts over', async ({ page }) => {
+    const viewer = await loaded(page)
+    await viewer.calibrateButton.click()
+    await pickCorners(page, viewer, [0, 1])
+    await expect(viewer.applyButton).toBeEnabled()
+    await page.getByTestId('mode-perspective').click()
+    await expect(viewer.applyButton).toBeDisabled()
+    await expect(page.getByText('Ecke „oben links“')).toBeVisible()
+  })
 })

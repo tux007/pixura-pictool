@@ -10,6 +10,7 @@ import {
   type Corner,
 } from '../math/motif'
 import { toScreen, type Pt, type View } from '../math/view'
+import type { MotifRenderer } from '../gl/motif-renderer'
 import type { Motif, Wall } from '../model/types'
 import type { Layer } from './layer'
 import type { Viewport } from './viewport'
@@ -23,6 +24,7 @@ type Drag =
   | { kind: 'rotate' }
   | { kind: 'corner'; corner: Corner; grab: Pt }
 
+// The motif pixels come from the WebGL renderer; this layer draws the handles and handles input.
 export class MotifLayer implements Layer {
   wall: Wall | null = null
   motif: Motif | null = null
@@ -31,6 +33,7 @@ export class MotifLayer implements Layer {
 
   constructor(
     private vp: Viewport,
+    private gl: MotifRenderer | null,
     private onChange: () => void,
   ) {}
 
@@ -39,31 +42,23 @@ export class MotifLayer implements Layer {
     return cal ? toScreen(view, wallToImage(cal, wall)) : { x: 0, y: 0 }
   }
 
+  // Above the top edge, ROT_DIST screen pixels along the (projected) up direction.
   private rotateHandle(view: View): Pt | null {
-    const cal = this.wall?.calibration
     const m = this.motif
-    if (!cal || !m) return null
-    const s = cal.pxPerCm * view.scale
-    return this.screen(view, toWall(m.box, { x: 0, y: -(m.box.h / 2 + ROT_DIST / s) }))
+    if (!m || !this.wall?.calibration) return null
+    const top = this.screen(view, toWall(m.box, { x: 0, y: -m.box.h / 2 }))
+    const mid = this.screen(view, m.box)
+    const len = Math.hypot(top.x - mid.x, top.y - mid.y)
+    const dir = len > 1e-6 ? { x: (top.x - mid.x) / len, y: (top.y - mid.y) / len } : { x: 0, y: -1 }
+    return { x: top.x + dir.x * ROT_DIST, y: top.y + dir.y * ROT_DIST }
   }
 
   draw(ctx: CanvasRenderingContext2D, view: View): void {
-    const cal = this.wall?.calibration
+    const cal = this.wall?.calibration ?? null
     const m = this.motif
-    if (!cal || !m) return
-    const s = cal.pxPerCm * view.scale
+    this.gl?.render(m, cal, view, this.vp.getSize(), this.vp.getDpr())
+    if (!cal || !m || !this.enabled) return
     const { box } = m
-    const c = this.screen(view, box)
-
-    ctx.save()
-    ctx.translate(c.x, c.y)
-    ctx.rotate((box.rot * Math.PI) / 180)
-    ctx.globalAlpha = m.opacity / 100
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(m.image, (-box.w * s) / 2, (-box.h * s) / 2, box.w * s, box.h * s)
-    ctx.restore()
-
-    if (!this.enabled) return
     const pts = CORNERS.map((k) => this.screen(view, cornerPoint(box, k)))
     const top = this.screen(view, toWall(box, { x: 0, y: -box.h / 2 }))
     const rot = this.rotateHandle(view)
@@ -130,6 +125,7 @@ export class MotifLayer implements Layer {
     const d = this.drag
     if (!cal || !m || !d) return
     const pw = imageToWall(cal, p)
+    if (!Number.isFinite(pw.x) || !Number.isFinite(pw.y)) return
     if (d.kind === 'move') {
       m.box = moveBy(m.box, pw.x - d.last.x, pw.y - d.last.y)
       d.last = pw

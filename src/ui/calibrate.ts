@@ -1,5 +1,11 @@
 import { calibrateLinear, MIN_POINT_PX, MIN_REF_CM } from '../math/calibration'
-import { formatLength, parseLength, type Unit } from '../math/units'
+import {
+  calibratePerspective,
+  type PerspectiveError,
+  type PerspectiveResult,
+  type PerspectiveWarning,
+} from '../math/perspective'
+import { formatLength, formatNumber, parseLength, type Unit } from '../math/units'
 import { toScreen, type Pt, type View } from '../math/view'
 import type { Calibration } from '../model/types'
 import { el } from './dom'
@@ -9,8 +15,27 @@ import type { Viewport } from './viewport'
 const HIT = 26
 const LOUPE = 120
 const ORANGE = '#fca311'
+const CORNER_NAMES = ['oben links', 'oben rechts', 'unten rechts', 'unten links'] as const
+
+type Mode = 'linear' | 'perspective'
+
+const WARNINGS: Record<PerspectiveWarning, string> = {
+  'short-reference': 'Kurze Referenz (unter 1 m): Fehler werden auf die ganze Wand hochgerechnet.',
+  'strong-perspective': 'Starke Perspektive: wenn möglich frontaler fotografieren, die Fehler wachsen zum Rand hin.',
+  'aspect-mismatch':
+    'Das Seitenverhältnis passt laut Foto nicht zu deiner Eingabe. Stimmen Breite und Höhe, sind die Ecken richtig gesetzt?',
+  'small-area': 'Das Rechteck ist klein im Foto: Fehler werden hochgerechnet.',
+}
+
+const ERRORS: Record<PerspectiveError, string> = {
+  'bad-size': 'Bitte Breite und Höhe grösser als 0 eingeben (z. B. 2 m und 2,1 m).',
+  degenerate: 'Die vier Punkte ergeben kein brauchbares Viereck (fast auf einer Linie, zu nah beieinander oder zu extrem).',
+  'not-convex': 'Die Punkte kreuzen sich. Reihenfolge: oben links, oben rechts, unten rechts, unten links.',
+  'wrong-order': 'Die Punkte liegen gegen den Uhrzeigersinn. Reihenfolge: oben links, oben rechts, unten rechts, unten links.',
+}
 
 export class CalibrationFlow implements Layer {
+  private mode: Mode = 'linear'
   private pts: Pt[] = []
   private drag = -1
   private grab: Pt = { x: 0, y: 0 }
@@ -19,9 +44,16 @@ export class CalibrationFlow implements Layer {
 
   private sheet = el('section', 'sheet')
   private step = el('p', 'step')
-  private input = el('input')
+  private modeLinear = el('button', 'btn', 'Strecke (2 Punkte)')
+  private modePersp = el('button', 'btn', 'Rechteck (4 Punkte)')
+  private distance = el('input')
+  private rectW = el('input')
+  private rectH = el('input')
+  private linearRow = el('div', 'row')
+  private rectRow = el('div', 'row')
   private unit = el('select')
   private note = el('p', 'note')
+  private quality = el('p', 'quality')
   private apply = el('button', 'btn primary', 'Übernehmen')
   private cancel = el('button', 'btn', 'Abbrechen')
   private loupe = el('div', 'loupe')
@@ -40,26 +72,43 @@ export class CalibrationFlow implements Layer {
     const hint = el(
       'p',
       'hint',
-      'Referenz möglichst gross wählen (mindestens ca. 1 m), sonst werden Fehler auf die ganze Wand hochgerechnet. Das Foto sollte frontal aufgenommen sein.',
+      'Referenz möglichst gross wählen (mindestens ca. 1 m), sonst werden Fehler auf die ganze Wand hochgerechnet. Das Foto nicht im Ultraweitwinkel aufnehmen.',
     )
 
-    this.input.type = 'text'
-    this.input.inputMode = 'decimal'
-    this.input.autocomplete = 'off'
-    this.input.placeholder = 'z. B. 2,5'
+    const modes = el('div', 'row')
+    for (const b of [this.modeLinear, this.modePersp]) b.type = 'button'
+    this.modeLinear.dataset.testid = 'mode-linear'
+    this.modePersp.dataset.testid = 'mode-perspective'
+    modes.append(this.modeLinear, this.modePersp)
+
+    for (const i of [this.distance, this.rectW, this.rectH]) {
+      i.type = 'text'
+      i.inputMode = 'decimal'
+      i.autocomplete = 'off'
+    }
+    this.distance.placeholder = 'z. B. 2,5'
+    this.rectW.placeholder = 'z. B. 90'
+    this.rectH.placeholder = 'z. B. 2,1 m'
     for (const u of ['cm', 'm']) this.unit.append(new Option(u, u))
     this.unit.setAttribute('aria-label', 'Einheit')
-    const label = el('label', 'field')
-    label.append(el('span', undefined, 'Echte Distanz'), this.input)
-    const row = el('div', 'row')
-    row.append(label, this.unit)
+
+    const field = (label: string, input: HTMLInputElement): HTMLLabelElement => {
+      const l = el('label', 'field')
+      l.append(el('span', undefined, label), input)
+      return l
+    }
+    this.linearRow.append(field('Echte Distanz', this.distance))
+    this.rectRow.append(field('Rechteck-Breite', this.rectW), field('Rechteck-Höhe', this.rectH))
+    const unitRow = el('div', 'row')
+    unitRow.append(el('span', undefined, 'Einheit ohne Angabe:'), this.unit)
 
     this.apply.type = 'button'
     this.cancel.type = 'button'
     this.note.setAttribute('role', 'status')
+    this.quality.dataset.testid = 'quality'
     const actions = el('div', 'row')
     actions.append(this.apply, this.cancel)
-    this.sheet.append(this.step, hint, row, this.note, actions)
+    this.sheet.append(this.step, modes, hint, this.linearRow, this.rectRow, unitRow, this.note, this.quality, actions)
 
     this.lcanvas.width = LOUPE * 2
     this.lcanvas.height = LOUPE * 2
@@ -72,11 +121,15 @@ export class CalibrationFlow implements Layer {
 
     stage.append(this.loupe, this.sheet)
 
-    this.input.addEventListener('input', () => this.refresh())
+    for (const i of [this.distance, this.rectW, this.rectH]) {
+      i.addEventListener('input', () => this.refresh())
+      i.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this.commit()
+      })
+    }
     this.unit.addEventListener('change', () => this.refresh())
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.commit()
-    })
+    this.modeLinear.addEventListener('click', () => this.setMode('linear'))
+    this.modePersp.addEventListener('click', () => this.setMode('perspective'))
     this.apply.addEventListener('click', () => this.commit())
     this.cancel.addEventListener('click', () => this.finish(null))
   }
@@ -85,16 +138,30 @@ export class CalibrationFlow implements Layer {
     return this.running
   }
 
+  private get target(): number {
+    return this.mode === 'linear' ? 2 : 4
+  }
+
   start(image: ImageBitmap): void {
     this.image = image
+    this.running = true
+    this.sheet.hidden = false
+    this.distance.value = ''
+    this.rectW.value = ''
+    this.rectH.value = ''
+    this.vp.setTapHandler((p) => this.place(p))
+    this.setMode('linear')
+  }
+
+  private setMode(m: Mode): void {
+    this.mode = m
     this.pts = []
     this.drag = -1
-    this.running = true
-    this.input.value = ''
-    this.sheet.hidden = false
-    this.vp.setTapHandler((p) => this.place(p))
+    this.linearRow.hidden = m !== 'linear'
+    this.rectRow.hidden = m !== 'perspective'
+    this.modeLinear.setAttribute('aria-pressed', String(m === 'linear'))
+    this.modePersp.setAttribute('aria-pressed', String(m === 'perspective'))
     this.refresh()
-    this.vp.redraw()
   }
 
   private finish(c: Calibration | null): void {
@@ -107,14 +174,13 @@ export class CalibrationFlow implements Layer {
   }
 
   private place(p: Pt): void {
-    if (this.pts.length >= 2) return
+    if (this.pts.length >= this.target) return
     this.pts.push(p)
     this.refresh()
-    this.vp.redraw()
   }
 
-  private distance(): number | null {
-    const cm = parseLength(this.input.value, this.unit.value as Unit)
+  private len(input: HTMLInputElement): number | null {
+    const cm = parseLength(input.value, this.unit.value as Unit)
     return cm !== null && cm > 0 ? cm : null
   }
 
@@ -123,41 +189,78 @@ export class CalibrationFlow implements Layer {
     return a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0
   }
 
+  private perspective(): PerspectiveResult | null {
+    const [a, b, c, d] = this.pts
+    const w = this.len(this.rectW)
+    const h = this.len(this.rectH)
+    if (!a || !b || !c || !d || w === null || h === null || !this.image) return null
+    return calibratePerspective([a, b, c, d], w, h, { w: this.image.width, h: this.image.height })
+  }
+
   private refresh(): void {
     const n = this.pts.length
-    this.step.textContent =
-      n === 0
-        ? 'Tippe den ersten Punkt der bekannten Strecke an.'
-        : n === 1
-          ? 'Tippe den zweiten Punkt an.'
-          : 'Marker ziehen zum Feinjustieren, dann die echte Distanz eingeben.'
-    this.apply.disabled = n < 2
-    this.note.classList.remove('error')
-    const msgs: string[] = []
-    if (n === 2 && this.pixelDistance() < MIN_POINT_PX) {
-      msgs.push('Die Punkte liegen sehr nah beieinander, das Ergebnis wird ungenau.')
+    const done = n >= this.target
+    if (this.mode === 'linear') {
+      this.step.textContent =
+        n === 0
+          ? 'Tippe den ersten Punkt der bekannten Strecke an.'
+          : n === 1
+            ? 'Tippe den zweiten Punkt an.'
+            : 'Marker ziehen zum Feinjustieren, dann die echte Distanz eingeben.'
+    } else {
+      this.step.textContent = done
+        ? 'Marker ziehen zum Feinjustieren, dann Breite und Höhe des Rechtecks eingeben.'
+        : `Tippe die Ecke „${CORNER_NAMES[n]}“ des bekannten Rechtecks an (Tür, Fenster, markierte Fläche).`
     }
-    const d = this.distance()
-    if (n === 2 && d !== null && d < MIN_REF_CM) {
-      msgs.push('Kurze Referenz (unter 1 m): Fehler werden auf die ganze Wand hochgerechnet.')
+    this.apply.disabled = !done
+    this.note.classList.remove('error')
+    this.quality.textContent = ''
+
+    const msgs: string[] = []
+    if (this.mode === 'linear') {
+      if (done && this.pixelDistance() < MIN_POINT_PX) {
+        msgs.push('Die Punkte liegen sehr nah beieinander, das Ergebnis wird ungenau.')
+      }
+      const d = this.len(this.distance)
+      if (done && d !== null && d < MIN_REF_CM) msgs.push(WARNINGS['short-reference'])
+    } else if (done) {
+      const r = this.perspective()
+      if (r?.ok) {
+        for (const w of r.warnings) msgs.push(WARNINGS[w])
+        const q = r.calibration.quality
+        let text = `Kalibrierfehler: Rückprojektion ${formatNumber(q.reprojPx, 2)} px (${formatNumber(q.reprojCm, 2)} cm).`
+        if (q.aspectDeviation !== null) {
+          text += ` Seitenverhältnis weicht laut Foto um ca. ${formatNumber(Math.abs(q.aspectDeviation) * 100)} % ab`
+          if (Math.abs(q.aspectDeviation) > 0.03 && q.impliedHeightCm !== null) {
+            text += ` (Höhe laut Foto etwa ${formatNumber(q.impliedHeightCm)} statt ${formatNumber(r.calibration.heightCm)} cm)`
+          }
+          text += '.'
+        }
+        this.quality.textContent = text
+      } else if (r) {
+        msgs.push(ERRORS[r.error])
+        this.note.classList.add('error')
+      }
     }
     this.note.textContent = msgs.join(' ')
     this.vp.redraw()
   }
 
   private commit(): void {
-    const [a, b] = this.pts
-    if (!a || !b) return
-    const cm = this.distance()
-    if (cm === null) {
-      this.fail('Bitte eine Distanz grösser als 0 eingeben (z. B. 2,5 m).')
+    if (this.pts.length < this.target) return
+    if (this.mode === 'linear') {
+      const [a, b] = this.pts
+      const cm = this.len(this.distance)
+      if (!a || !b) return
+      if (cm === null) return this.fail('Bitte eine Distanz grösser als 0 eingeben (z. B. 2,5 m).')
+      const r = calibrateLinear(a, b, cm)
+      if (!r.ok) return this.fail('Die beiden Punkte liegen zu nah beieinander.')
+      this.finish(r.calibration)
       return
     }
-    const r = calibrateLinear(a, b, cm)
-    if (!r.ok) {
-      this.fail('Die beiden Punkte liegen zu nah beieinander.')
-      return
-    }
+    const r = this.perspective()
+    if (!r) return this.fail(ERRORS['bad-size'])
+    if (!r.ok) return this.fail(ERRORS[r.error])
     this.finish(r.calibration)
   }
 
@@ -169,21 +272,30 @@ export class CalibrationFlow implements Layer {
   draw(ctx: CanvasRenderingContext2D, view: View): void {
     if (!this.running) return
     const s = this.pts.map((p) => toScreen(view, p))
-    const [a, b] = s
-    if (a && b) {
+    const first = s[0]
+    if (first && s.length >= 2) {
       ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      ctx.moveTo(first.x, first.y)
+      for (const q of s.slice(1)) ctx.lineTo(q.x, q.y)
+      if (s.length === 4) {
+        ctx.closePath()
+        ctx.fillStyle = 'rgba(252,163,17,0.14)'
+        ctx.fill()
+      }
       for (const [w, c] of [
         [5, 'rgba(0,0,0,0.55)'],
         [2, ORANGE],
       ] as const) {
         ctx.lineWidth = w
         ctx.strokeStyle = c
-        ctx.beginPath()
-        ctx.moveTo(a.x, a.y)
-        ctx.lineTo(b.x, b.y)
         ctx.stroke()
       }
-      const cm = this.distance()
+    }
+    const [a, b] = s
+    if (this.mode === 'linear' && a && b) {
+      const cm = this.len(this.distance)
       if (cm !== null) {
         const text = formatLength(cm)
         const mx = (a.x + b.x) / 2
@@ -213,10 +325,14 @@ export class CalibrationFlow implements Layer {
       ctx.moveTo(q.x, q.y - 18)
       ctx.lineTo(q.x, q.y + 18)
       ctx.stroke()
+      const label = this.mode === 'linear' ? String(i + 1) : (CORNER_NAMES[i] ?? '')
       ctx.font = '700 13px system-ui, sans-serif'
       ctx.textAlign = 'left'
+      ctx.lineWidth = 3
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'
+      ctx.strokeText(label, q.x + 14, q.y - 12)
       ctx.fillStyle = '#fff'
-      ctx.fillText(String(i + 1), q.x + 14, q.y - 12)
+      ctx.fillText(label, q.x + 14, q.y - 12)
     })
   }
 

@@ -50,9 +50,25 @@ export class ViewerPage {
   }
 
   async centerAlpha(): Promise<number> {
-    return this.canvas.evaluate((c: HTMLCanvasElement) => {
+    return this.page.getByTestId('wall-canvas').evaluate((c: HTMLCanvasElement) => {
       const ctx = c.getContext('2d')
       return ctx ? ctx.getImageData(c.width >> 1, c.height >> 1, 1, 1).data[3] ?? 0 : 0
+    })
+  }
+
+  // Number of non-transparent pixels the WebGL motif pass produced.
+  async motifPixels(): Promise<number> {
+    return this.page.getByTestId('motif-canvas').evaluate((c: HTMLCanvasElement) => {
+      const t = document.createElement('canvas')
+      t.width = c.width
+      t.height = c.height
+      const ctx = t.getContext('2d')
+      if (!ctx) return 0
+      ctx.drawImage(c, 0, 0)
+      const d = ctx.getImageData(0, 0, t.width, t.height).data
+      let n = 0
+      for (let i = 3; i < d.length; i += 4) if ((d[i] ?? 0) > 0) n++
+      return n
     })
   }
 
