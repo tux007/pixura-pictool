@@ -10,12 +10,12 @@ Web-Tool für den Kundentermin: Wandfoto laden, eine bekannte Strecke oder ein b
 
 | Bereich | Inhalt |
 | --- | --- |
-| Foto | Dateiauswahl und Kamera, EXIF-Ausrichtung, intern max. 4096 px Kantenlänge, Pan und Pinch-Zoom |
+| Bilder | Wandfoto und Motiv als JPEG, PNG, HEIC (wo der Browser es kann) oder **TIFF**. Dateiauswahl und Kamera, EXIF-Ausrichtung, intern max. 4096 px Kantenlänge, Pan und Pinch-Zoom |
 | Kalibrierung | **Strecke (2 Punkte)** für frontale Fotos, **Rechteck (4 Punkte)** mit Perspektive (Homographie), Lupe, Warnungen und Kalibrierfehler |
 | Motiv | Breite oder Höhe in cm/m eingeben, Seitenverhältnis sperrbar, Eckgriffe, Drehgriff, Deckkraft, Live-Masse |
 | Hilfslinien | Boden, Decke, linke und rechte Wandkante; zeigt die Abstände des Motivs in cm |
 | Varianten | Bis zu 3 pro Projekt (Tabs), Vergleichsansicht nebeneinander |
-| Export | PNG und PDF (1 Seite) mit Massen, Datum und Hinweis „Vorschau, Massangaben ca. ±X cm“ (X einstellbar, Standard 5); Teilen über die Web Share API, sonst Download |
+| Export | PNG, **TIFF** und PDF (1 Seite) mit Massen, Datum und Hinweis „Vorschau, Massangaben ca. ±X cm“ (X einstellbar, Standard 5); Teilen über die Web Share API, sonst Download |
 | Projekte | Automatisch lokal gespeichert (IndexedDB): Liste, Öffnen, Duplizieren, Löschen, „Alle lokalen Daten löschen“ |
 
 Texte sind Deutsch in Schweizer Rechtschreibung, Einheiten cm und m mit Dezimalkomma.
@@ -44,7 +44,7 @@ npm run preview
 
 ```bash
 npm run lint
-npm test            # Vitest: Mathematik, PDF-Writer, Speicher-Records
+npm test            # Vitest: Mathematik, PDF- und TIFF-Writer, TIFF-Import, Speicher-Records
 npm run test:e2e    # Playwright: baut selbst und startet einen Server auf Port 4174
 ```
 
@@ -106,7 +106,8 @@ Die In-App-Anleitung „So fotografierst du die Wand“ steht unter **Anleitung*
 
 ## Technik
 
-- Vite 8, TypeScript (strict), Vanilla ohne UI-Framework. Es gibt **keine Runtime-Abhängigkeiten**; alles in `devDependencies` (Vite, TypeScript, Vitest, ESLint, Playwright).
+- Vite 8, TypeScript (strict), Vanilla ohne UI-Framework. Es gibt **eine Runtime-Abhängigkeit**: [`utif`](https://github.com/photopea/UTIF.js) (MIT, mit `pako`), der TIFF-Decoder. Browser (ausser Safari) können TIFF nicht anzeigen, und ein eigener Decoder für alle Kompressionen, Farbmodelle und Bittiefen wäre viel Code und Fehlerquelle. Die Bibliothek wird lokal mitgebaut, ohne externe Requests, und erst beim Öffnen eines TIFF nachgeladen (eigener Teil, vom Service Worker für offline vorgeladen). Alles andere steht in `devDependencies` (Vite, TypeScript, Vitest, ESLint, Playwright).
+- TIFF-Export von Hand (`src/export/tiff.ts`): 8 Bit RGB, Deflate-Kompression, 72 dpi. Der Browser hat keinen TIFF-Encoder.
 - Rendering des Motivs mit WebGL 2: Jeder Bildschirmpixel wird über die inverse Kalibrierung (Skalierung oder Homographie) in Texturkoordinaten abgebildet. Das ist exakt und flüssig und vermeidet ein Dreiecksnetz in Canvas 2D mit Nähten und Näherungsfehlern.
 - Service Worker von Hand (`src/sw/sw.ts`), die Precache-Liste wird beim Build eingesetzt. Keine Workbox.
 - PDF von Hand (`src/export/pdf.ts`): ein JPEG und Text in Helvetica, rund 100 Zeilen statt einer grossen PDF-Bibliothek.
@@ -131,6 +132,7 @@ e2e/           Playwright-Tests (Page Object Model)
 - **Rückprojektionsfehler:** Bei genau vier Punkten wird die Homographie exakt angepasst, der Fehler ist deshalb rechnerisch fast 0. Aussagekräftiger ist die Prüfung des Seitenverhältnisses.
 - **WebGL 2 ist nötig** (Safari ab 15, aktuelle Chrome/Firefox/Edge). Ohne WebGL 2 lassen sich Motive nicht darstellen.
 - **Fotos** werden intern auf max. 4096 px Kantenlänge reduziert, Dateien über 60 MB werden abgelehnt.
+- **TIFF:** Gelesen werden Graustufen, RGB, Palette und CMYK mit 8 oder 16 Bit (unkomprimiert, LZW, Deflate, PackBits). CMYK wird ohne Farbmanagement nach RGB umgerechnet, ein eingebettetes ICC-Profil wird ignoriert. Bei mehreren Bildern in einer Datei zählt das grösste, Ebenen werden nicht gelesen, BigTIFF wird nicht unterstützt. Das Dekodieren braucht den ganzen Speicher auf einmal, deshalb sind TIFFs über 50 Megapixel gesperrt (Meldung mit Hinweis). Der TIFF-Export enthält dasselbe wie das PNG (Vorschau mit Massen und Textband), kein Druckdatei-Ersatz.
 - **Speicher:** Die Projekte liegen nur auf diesem Gerät. Safari löscht Website-Daten nach längerer Nichtnutzung (rund 7 Tage), wenn die Seite **nicht** als App zum Home-Bildschirm hinzugefügt ist. Für wichtige Projekte die App installieren oder PNG/PDF exportieren. Bei vollem Speicher erscheint eine Meldung.
 - **Teilen** mit Dateien hängt vom Browser ab. Wo es nicht geht, wird heruntergeladen.
 - Wird die Kalibrierung eines Projekts geändert, werden die Hilfslinien zurückgesetzt. Motive bleiben an derselben Stelle im Foto.

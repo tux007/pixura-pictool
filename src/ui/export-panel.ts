@@ -2,7 +2,7 @@ import { canShareFiles } from '../export/share'
 import type { Project } from '../model/types'
 import { el } from './dom'
 
-export type ExportKind = 'png' | 'pdf'
+export type ExportKind = 'png' | 'pdf' | 'tiff'
 export type ExportMode = 'share' | 'download'
 
 export class ExportPanel {
@@ -59,9 +59,11 @@ export class ExportPanel {
     if (canShareFiles()) {
       add('PNG teilen', 'export-png-share', 'png', 'share')
       add('PDF teilen', 'export-pdf-share', 'pdf', 'share')
+      add('TIFF teilen', 'export-tiff-share', 'tiff', 'share')
     }
     add('PNG laden', 'export-png-download', 'png', 'download')
     add('PDF laden', 'export-pdf-download', 'pdf', 'download')
+    add('TIFF laden', 'export-tiff-download', 'tiff', 'download')
 
     this.root.append(hint, field, row, this.note)
   }

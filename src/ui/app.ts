@@ -1,6 +1,7 @@
 import { clearAll, deleteProject, duplicateProject, getProject, listProjects, putProject } from '../storage/db'
 import { defaultName, newId, toFile, toRecord } from '../storage/records'
 import { buildPdf } from '../export/pdf'
+import { buildTiff } from '../export/tiff'
 import { download, shareFile } from '../export/share'
 import { MotifRenderer } from '../gl/motif-renderer'
 import { LoadError, loadImage } from '../image/load'
@@ -38,7 +39,7 @@ const toBlob = (c: HTMLCanvasElement, type: string, quality?: number): Promise<B
 function fileInput(testId: string, capture?: string): HTMLInputElement {
   const input = el('input')
   input.type = 'file'
-  input.accept = 'image/*'
+  input.accept = 'image/*,.tif,.tiff'
   input.hidden = true
   input.dataset.testid = testId
   if (capture) input.setAttribute('capture', capture)
@@ -450,6 +451,12 @@ export function mountApp(root: HTMLElement): void {
     if (kind === 'png') {
       const blob = await toBlob(renderScene(exportGl, scene, EXPORT_WIDTH, lines), 'image/png')
       file = new File([blob], `${name}.png`, { type: 'image/png' })
+    } else if (kind === 'tiff') {
+      const c = renderScene(exportGl, scene, EXPORT_WIDTH, lines)
+      const ctx = c.getContext('2d')
+      if (!ctx) throw new Error('Canvas 2D is not available')
+      const tiff = await buildTiff(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height)
+      file = new File([tiff as BlobPart], `${name}.tiff`, { type: 'image/tiff' })
     } else {
       const c = renderScene(exportGl, scene, EXPORT_WIDTH)
       const jpeg = new Uint8Array(await (await toBlob(c, 'image/jpeg', 0.92)).arrayBuffer())
