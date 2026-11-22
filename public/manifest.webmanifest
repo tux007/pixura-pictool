@@ -1,7 +1,7 @@
 {
   "name": "Pixura Wandvorschau",
   "short_name": "Wandvorschau",
-  "description": "Motive massstäblich auf einem Wandfoto platzieren.",
+  "description": "Motiv massstäblich auf dem Wandfoto platzieren und wallPen-Abstände prüfen. Für Tablets ab ca. 10 Zoll und Desktop.",
   "lang": "de-CH",
   "start_url": "/",
   "scope": "/",

@@ -27,11 +27,16 @@ export function openHelp(): void {
     undefined,
     'Die App führt dich in fünf Schritten: Foto, Kalibrieren, Motiv, Abstände, Export. Oben siehst du, wo du bist. Unten geht es mit „Weiter“ voran, mit „Zurück“ kannst du jederzeit einen Schritt korrigieren. Die Vorschau ist eine Näherung (Massangaben ca. ± wenige cm).',
   )
+  const devices = el(
+    'p',
+    undefined,
+    'Geeignete Geräte: Tablets ab ca. 10 Zoll und Desktop. Auf Handys und kleinen Tablets (z. B. iPad mini) ist die Fläche zu klein, um ein Motiv genau zu platzieren.',
+  )
   const close = el('button', 'btn primary', 'Schliessen')
   close.type = 'button'
   close.addEventListener('click', () => dialog.close())
   dialog.addEventListener('close', () => dialog.remove())
-  dialog.append(title, list, flow, close)
+  dialog.append(title, list, flow, devices, close)
   document.body.append(dialog)
   dialog.showModal()
 }

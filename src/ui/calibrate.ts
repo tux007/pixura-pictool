@@ -8,7 +8,7 @@ import {
 import { formatLength, formatNumber, parseLength, type Unit } from '../math/units'
 import { toScreen, type Pt, type View } from '../math/view'
 import type { Calibration } from '../model/types'
-import { el } from './dom'
+import { collapsible, el, LOW_HEIGHT } from './dom'
 import type { Layer } from './layer'
 import type { Viewport } from './viewport'
 
@@ -109,6 +109,8 @@ export class CalibrationFlow implements Layer {
     const actions = el('div', 'row')
     actions.append(this.apply, this.cancel)
     this.sheet.append(this.step, modes, hint, this.linearRow, this.rectRow, unitRow, this.note, this.quality, actions)
+    // the markers must stay reachable: the sheet can be folded away on narrow or low screens
+    collapsible(this.sheet, matchMedia(LOW_HEIGHT).matches)
 
     this.lcanvas.width = LOUPE * 2
     this.lcanvas.height = LOUPE * 2

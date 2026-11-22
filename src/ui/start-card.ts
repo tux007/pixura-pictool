@@ -1,6 +1,40 @@
 import { listProjects } from '../storage/db'
 import { formatStamp, type ProjectSummary } from '../storage/records'
-import { el } from './dom'
+import { el, isSmallScreen } from './dom'
+
+const NOTE_KEY = 'pixura.smallDeviceNote'
+
+// Phones and small tablets are too small to place a motif exactly. A hint, not a block.
+function deviceNote(): HTMLElement | null {
+  try {
+    if (!isSmallScreen(screen.width, screen.height) || localStorage.getItem(NOTE_KEY)) return null
+  } catch {
+    return null
+  }
+  const box = el('div', 'device-note')
+  box.setAttribute('role', 'note')
+  box.dataset.testid = 'device-note'
+  const ok = el('button', 'btn', 'Verstanden')
+  ok.type = 'button'
+  ok.dataset.testid = 'device-note-dismiss'
+  ok.addEventListener('click', () => {
+    try {
+      localStorage.setItem(NOTE_KEY, '1')
+    } catch {
+      // private mode: the hint simply shows again next time
+    }
+    box.remove()
+  })
+  box.append(
+    el(
+      'p',
+      undefined,
+      'Hinweis: Die Wandvorschau ist für Tablets ab ca. 10 Zoll und für den Desktop gedacht. Auf Handys und kleinen Tablets (z. B. iPad mini) ist die Fläche zu klein, um ein Motiv genau zu platzieren. Du kannst die App trotzdem nutzen.',
+    ),
+    ok,
+  )
+  return box
+}
 
 export interface StartApi {
   pick(): void
@@ -51,7 +85,8 @@ export class StartCard {
     help.dataset.testid = 'start-help'
     help.addEventListener('click', () => this.api.help())
 
-    this.root.append(title, text, row, this.recent, help)
+    const note = deviceNote()
+    this.root.append(title, text, ...(note ? [note] : []), row, this.recent, help)
   }
 
   show(visible: boolean): void {

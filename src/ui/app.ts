@@ -14,7 +14,7 @@ import { activeMotif, MAX_VARIANTS, type Calibration, type Project } from '../mo
 import { fmtCm } from '../render/annotations'
 import { renderScene } from '../render/scene'
 import { CalibrationFlow } from './calibrate'
-import { el } from './dom'
+import { collapsible, el, LOW_HEIGHT } from './dom'
 import { ExportPanel, type ExportKind, type ExportMode } from './export-panel'
 import { GuideLayer } from './guide-layer'
 import { GuidesPanel } from './guides-panel'
@@ -77,20 +77,6 @@ function fileInput(testId: string, capture?: string): HTMLInputElement {
   return input
 }
 
-// On narrow screens the panels sit on top of the photo: let the user fold them away.
-function collapsible(root: HTMLElement): void {
-  const toggle = el('button', 'sheet-toggle', 'Einklappen')
-  toggle.type = 'button'
-  toggle.dataset.testid = 'sheet-toggle'
-  toggle.setAttribute('aria-expanded', 'true')
-  toggle.addEventListener('click', () => {
-    const folded = root.classList.toggle('collapsed')
-    toggle.textContent = folded ? 'Ausklappen' : 'Einklappen'
-    toggle.setAttribute('aria-expanded', String(!folded))
-  })
-  root.prepend(toggle)
-}
-
 function button(label: string, testId: string, cls = 'btn'): HTMLButtonElement {
   const b = el('button', cls, label)
   b.type = 'button'
@@ -137,7 +123,17 @@ export function mountApp(root: HTMLElement): void {
   const guideHint = el('p', 'guide-hint')
   guideHint.dataset.testid = 'step-hint'
   guideHint.setAttribute('aria-live', 'polite')
-  guideText.append(guideStep, guideTitle, guideHint)
+  // narrow or low screens: the hint can be hidden to give the photo more room
+  const lowHeight = matchMedia(LOW_HEIGHT).matches
+  const hintToggle = button(lowHeight ? 'Hinweis anzeigen' : 'Hinweis ausblenden', 'hint-toggle', 'btn link hint-toggle')
+  hintToggle.setAttribute('aria-expanded', String(!lowHeight))
+  guide.classList.toggle('hint-off', lowHeight)
+  hintToggle.addEventListener('click', () => {
+    const off = guide.classList.toggle('hint-off')
+    hintToggle.textContent = off ? 'Hinweis anzeigen' : 'Hinweis ausblenden'
+    hintToggle.setAttribute('aria-expanded', String(!off))
+  })
+  guideText.append(guideStep, guideTitle, guideHint, hintToggle)
   const guideActions = el('div', 'guide-actions')
   const pick = button('Anderes Foto wählen', 'pick')
   const camera = button('Neue Aufnahme', 'camera')
@@ -160,9 +156,16 @@ export function mountApp(root: HTMLElement): void {
   canvas.dataset.testid = 'viewport'
   canvas.setAttribute('role', 'img')
   canvas.setAttribute('aria-label', 'Wandfoto')
-  const banner = el('p', 'banner')
+  const banner = el('div', 'banner')
   banner.setAttribute('role', 'alert')
   banner.hidden = true
+  const bannerText = el('span')
+  const bannerClose = button('×', 'banner-close', 'banner-close')
+  bannerClose.setAttribute('aria-label', 'Meldung schliessen')
+  bannerClose.addEventListener('click', () => {
+    banner.hidden = true
+  })
+  banner.append(bannerText, bannerClose)
   const fit = button('Einpassen', 'fit', 'btn fit')
   stage.append(base, glCanvas, canvas, banner, fit)
 
@@ -200,7 +203,7 @@ export function mountApp(root: HTMLElement): void {
   const viewport = new Viewport(canvas, base)
   const renderer = MotifRenderer.create(glCanvas)
   if (!renderer) {
-    banner.textContent = 'Dieser Browser unterstützt WebGL 2 nicht. Motive können nicht angezeigt werden.'
+    bannerText.textContent = 'Dieser Browser unterstützt WebGL 2 nicht. Motive können nicht angezeigt werden.'
     banner.hidden = false
   }
 
@@ -276,7 +279,7 @@ export function mountApp(root: HTMLElement): void {
   viewport.addLayer(motifLayer)
   viewport.addLayer(flow)
   stage.append(startCard.root, tabs.root, panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root)
-  for (const sheet of [panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root]) collapsible(sheet)
+  for (const sheet of [panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root]) collapsible(sheet, lowHeight)
 
   // --- step flow ---
 
@@ -446,7 +449,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   const showError = (msg: string): void => {
-    banner.textContent = msg
+    bannerText.textContent = msg
     banner.hidden = false
   }
 

@@ -424,14 +424,109 @@ canvas.layer {
 
 .banner {
   position: absolute;
+  z-index: 12;
   left: 12px;
   right: 12px;
   top: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0;
-  padding: 12px 16px;
+  padding: 12px 8px 12px 16px;
   border-radius: 10px;
   background: #fde8e8;
   color: #7a1010;
+}
+
+.banner-close {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -10px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.device-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #fff3cd;
+  color: #5c4400;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.device-note p {
+  margin: 0;
+}
+
+.hint-toggle {
+  display: none;
+  min-height: 36px;
+  padding: 0 4px;
+  font-size: 0.8125rem;
+}
+
+.guide.hint-off .guide-hint {
+  display: none;
+}
+
+/* narrow screens: let the user hide the long hint text */
+@media (max-width: 899px) {
+  .hint-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* low screens (phone in landscape): shrink the bars, the photo needs the height */
+@media (max-height: 560px) {
+  .hint-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .top {
+    padding-top: max(4px, env(safe-area-inset-top));
+    padding-bottom: 4px;
+  }
+
+  .guide {
+    min-height: 0;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    gap: 2px 12px;
+  }
+
+  .guide-step,
+  .info {
+    display: none;
+  }
+
+  .guide-title {
+    font-size: 1rem;
+  }
+
+  .nav {
+    padding-top: 4px;
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+
+  .start-card {
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 12px;
+  }
 }
 
 .btn.primary {

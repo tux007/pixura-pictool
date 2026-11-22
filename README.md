@@ -4,7 +4,8 @@ Web-Tool für den Kundentermin: Wandfoto laden, eine bekannte Strecke oder ein b
 
 - Läuft komplett im Browser. Kein Backend, keine Accounts, kein Tracking, keine externen Requests. Fotos verlassen das Gerät nie.
 - Installierbare PWA, nach dem ersten Laden offline nutzbar.
-- Mobile-first mit Touch-Bedienung (iPad-Safari, Android-Chrome, Desktop).
+- Touch-Bedienung (iPad-Safari, Android-Chrome) und Desktop.
+- **Geeignete Geräte:** Tablets ab ca. 10 Zoll (iPad ab 10,2 Zoll) und Desktop. Auf Handys und kleinen Tablets (z. B. iPad mini) ist die Fläche zu klein, um ein Motiv genau zu platzieren. Die App zeigt dort auf der Startkarte einen Hinweis, bleibt aber nutzbar: Bedienblätter lassen sich einklappen, der Hinweistext ausblenden.
 
 ## Funktionen
 

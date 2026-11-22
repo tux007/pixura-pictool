@@ -188,7 +188,7 @@ test.describe('guided flow', () => {
 })
 
 test.describe('small screens', () => {
-  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+  test.use({ viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, hasTouch: true })
 
   test('shows the current step name and lets the panel fold away', async ({ page }) => {
     const viewer = new ViewerPage(page)
@@ -206,15 +206,72 @@ test.describe('small screens', () => {
     await viewer.applyButton.click()
     await viewer.addMotif(PHOTO, 80)
 
+    const toggle = page.locator('[data-testid=sheet-toggle]:visible')
     await expect(viewer.readout).toBeVisible()
-    await page.getByTestId('sheet-toggle').first().click()
+    await toggle.click()
     await expect(viewer.readout).toBeHidden()
-    await expect(page.getByTestId('sheet-toggle').first()).toHaveText('Ausklappen')
-    await page.getByTestId('sheet-toggle').first().click()
+    await expect(toggle).toHaveText('Ausklappen')
+    await toggle.click()
     await expect(viewer.readout).toBeVisible()
   })
 
-  test('has no fold button on wide screens', async ({ page }) => {
+  test('shows a dismissible hint that the device is small', async ({ page }) => {
+    await new ViewerPage(page).goto()
+    const note = page.getByTestId('device-note')
+    await expect(note).toBeVisible()
+    await expect(note).toContainText('Tablets ab ca. 10 Zoll')
+    // not a block: the buttons still work
+    await expect(page.getByTestId('start-pick')).toBeEnabled()
+    await page.getByTestId('device-note-dismiss').click()
+    await expect(note).toHaveCount(0)
+    await page.reload()
+    await expect(page.getByTestId('start-card')).toBeVisible()
+    await expect(page.getByTestId('device-note')).toHaveCount(0)
+  })
+
+  test('the calibration window can be folded away to reach the photo', async ({ page }) => {
+    const viewer = new ViewerPage(page)
+    await viewer.goto()
+    await viewer.loadPhoto(PHOTO)
+    await expect(viewer.canvas).toHaveAttribute('data-scale', /.+/)
+    await viewer.calibrateButton.click()
+    await expect(viewer.distanceInput).toBeVisible()
+    const toggle = page.locator('[data-testid=sheet-toggle]:visible')
+    await toggle.click()
+    await expect(viewer.distanceInput).toBeHidden()
+    // the markers can be placed in the photo, then the window comes back
+    const c = await viewer.center()
+    await page.mouse.click(c.x - 80, c.y + 150)
+    await page.mouse.click(c.x + 60, c.y + 150)
+    await toggle.click()
+    await expect(viewer.distanceInput).toBeVisible()
+    await expect(viewer.applyButton).toBeEnabled()
+  })
+
+  test('the long hint text can be hidden', async ({ page }) => {
+    const viewer = new ViewerPage(page)
+    await viewer.goto()
+    await viewer.loadPhoto(PHOTO)
+    const hint = page.getByTestId('step-hint')
+    const toggle = page.getByTestId('hint-toggle')
+    await expect(hint).toBeVisible()
+    await toggle.click()
+    await expect(hint).toBeHidden()
+    await expect(toggle).toHaveText('Hinweis anzeigen')
+    await toggle.click()
+    await expect(hint).toBeVisible()
+  })
+
+  test('an error message can be closed', async ({ page }) => {
+    const viewer = new ViewerPage(page)
+    await viewer.goto()
+    await viewer.loadPhoto({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') })
+    await expect(viewer.alert).toContainText('kein Bild')
+    await page.getByTestId('banner-close').click()
+    await expect(viewer.alert).toBeHidden()
+  })
+
+  test('has no fold button and no hint on wide screens', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     const viewer = new ViewerPage(page)
     await viewer.goto()
@@ -222,8 +279,54 @@ test.describe('small screens', () => {
     await expect(viewer.canvas).toHaveAttribute('data-scale', /.+/)
     await viewer.calibrateLinear()
     await viewer.addMotif(PHOTO, 100)
-    await expect(page.getByTestId('sheet-toggle').first()).toBeHidden()
+    await expect(page.locator('[data-testid=sheet-toggle]:visible')).toHaveCount(0)
+    await expect(page.getByTestId('hint-toggle')).toBeHidden()
+    await expect(page.getByTestId('device-note')).toHaveCount(0)
     await expect(viewer.readout).toBeVisible()
+  })
+})
+
+test.describe('screen sizes', () => {
+  test.describe('iPad Air', () => {
+    test.use({ viewport: { width: 820, height: 1180 }, screen: { width: 820, height: 1180 }, hasTouch: true })
+
+    test('is a suitable device: no hint on the start card', async ({ page }) => {
+      await new ViewerPage(page).goto()
+      await expect(page.getByTestId('start-card')).toBeVisible()
+      await expect(page.getByTestId('device-note')).toHaveCount(0)
+    })
+  })
+
+  test.describe('iPad mini', () => {
+    test.use({ viewport: { width: 744, height: 1133 }, screen: { width: 744, height: 1133 }, hasTouch: true })
+
+    test('is too small: shows the hint', async ({ page }) => {
+      await new ViewerPage(page).goto()
+      await expect(page.getByTestId('device-note')).toBeVisible()
+    })
+  })
+
+  test.describe('phone in landscape', () => {
+    test.use({ viewport: { width: 844, height: 390 }, screen: { width: 844, height: 390 }, hasTouch: true })
+
+    test('keeps room for the photo: panels start folded and the hint is off', async ({ page }) => {
+      const viewer = new ViewerPage(page)
+      await viewer.goto()
+      await viewer.loadPhoto(PHOTO)
+      await expect(viewer.canvas).toHaveAttribute('data-scale', /.+/)
+      // bars are slim: the photo area keeps a usable height
+      const box = await viewer.canvas.boundingBox()
+      expect(box?.height ?? 0).toBeGreaterThan(190)
+      await expect(page.getByTestId('step-hint')).toBeHidden()
+      await expect(page.getByTestId('hint-toggle')).toHaveText('Hinweis anzeigen')
+
+      await viewer.calibrateButton.click()
+      const toggle = page.locator('[data-testid=sheet-toggle]:visible')
+      await expect(toggle).toHaveText('Ausklappen')
+      await expect(viewer.distanceInput).toBeHidden()
+      await toggle.click()
+      await expect(viewer.distanceInput).toBeVisible()
+    })
   })
 })
 
