@@ -1,3 +1,4 @@
+import type { RuleSettings } from '../math/clearance'
 import type { Guides } from '../math/guides'
 import type { Mat3 } from '../math/homography'
 import type { Box } from '../math/motif'
@@ -51,6 +52,8 @@ export interface Project {
   variants: Motif[]
   active: number
   guides: Guides
+  // wallPen printer distances (ceiling, inner corners, floor)
+  rules: RuleSettings
   showDims: boolean
   toleranceCm: number
 }

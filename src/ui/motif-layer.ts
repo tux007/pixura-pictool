@@ -1,4 +1,5 @@
 import { imageToWall, wallToImage } from '../math/calibration'
+import { checkRules } from '../math/clearance'
 import {
   angleFromPointer,
   contains,
@@ -18,6 +19,7 @@ import type { Viewport } from './viewport'
 const HIT = 24
 const ROT_DIST = 38
 const ORANGE = '#fca311'
+const RED = '#ff4d4d'
 
 type Drag =
   | { kind: 'move'; last: Pt }
@@ -71,9 +73,11 @@ export class MotifLayer implements Layer {
     const rot = this.rotateHandle(view)
     if (!rot) return
 
+    // red outline while the motif is closer to a wall edge than the wallPen allows
+    const edge = checkRules(box, this.project.guides, this.project.rules).state === 'violated' ? RED : ORANGE
     for (const [w, col] of [
       [4, 'rgba(0,0,0,0.5)'],
-      [2, ORANGE],
+      [2, edge],
     ] as const) {
       ctx.lineWidth = w
       ctx.strokeStyle = col

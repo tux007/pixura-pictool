@@ -48,7 +48,11 @@ export function openCompare(project: Project, gl: MotifRenderer): void {
   const grid = el('div', 'compare-grid')
   project.variants.forEach((motif, i) => {
     const fig = el('figure')
-    const canvas = renderScene(gl, { wall, motif, guides: project.guides, showDims: project.showDims }, 640)
+    const canvas = renderScene(
+      gl,
+      { wall, motif, guides: project.guides, showDims: project.showDims, rules: project.rules },
+      640,
+    )
     canvas.setAttribute('role', 'img')
     canvas.setAttribute('aria-label', `Variante ${i + 1}`)
     fig.append(

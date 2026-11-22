@@ -37,11 +37,13 @@ export class MotifPanel {
   private rotationOut = el('output')
   private opacityOut = el('output')
   private readout = el('p', 'readout')
+  private rulesLine = el('p', 'rules-line')
 
   constructor(
     private get: () => Motif | null,
     private onEdit: () => void,
     private onRemove: () => void,
+    private rules: () => { text: string; state: 'ok' | 'violated' | 'unchecked' | 'off' } | null,
   ) {
     this.root.setAttribute('aria-label', 'Motiv')
     this.root.hidden = true
@@ -60,7 +62,8 @@ export class MotifPanel {
     remove.type = 'button'
     remove.dataset.testid = 'variant-remove'
     remove.addEventListener('click', () => this.onRemove())
-    this.root.append(this.readout, sizes, rot, op, remove)
+    this.rulesLine.dataset.testid = 'rules-status-motif'
+    this.root.append(this.readout, this.rulesLine, sizes, rot, op, remove)
 
     this.bindSize(this.width, 'w')
     this.bindSize(this.height, 'h')
@@ -128,6 +131,11 @@ export class MotifPanel {
     this.opacityOut.textContent = `${m.opacity} %`
     this.lock.textContent = m.lockAspect ? 'Seitenverhältnis gesperrt' : 'Seitenverhältnis frei'
     this.lock.setAttribute('aria-pressed', String(m.lockAspect))
+    const rules = this.rules()
+    this.rulesLine.hidden = !rules || !rules.text
+    this.rulesLine.textContent = rules?.text ?? ''
+    this.rulesLine.classList.toggle('bad', rules?.state === 'violated')
+    this.rulesLine.classList.toggle('good', rules?.state === 'ok')
     this.readout.textContent = `Breite × Höhe: ${formatNumber(box.w)} × ${formatNumber(box.h)} cm · Mitte: x ${formatNumber(box.x)} cm, y ${formatNumber(box.y)} cm`
   }
 }

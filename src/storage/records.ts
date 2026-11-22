@@ -1,3 +1,4 @@
+import type { RuleSettings } from '../math/clearance'
 import type { GuideKind, Guides } from '../math/guides'
 import { GUIDE_KINDS } from '../math/guides'
 import type { Box } from '../math/motif'
@@ -29,6 +30,8 @@ export interface StoredProject {
   variants: StoredVariant[]
   active: number
   guides: Guides
+  // absent in projects saved before the wallPen distances existed
+  rules?: RuleSettings
   showDims: boolean
   toleranceCm: number
   thumb: Blob | null
@@ -81,6 +84,7 @@ export function toRecord(p: Project, thumb: Blob | null): StoredProject {
     })),
     active: p.active,
     guides: { ...p.guides },
+    rules: { ...p.rules },
     showDims: p.showDims,
     toleranceCm: p.toleranceCm,
     thumb,
@@ -135,6 +139,10 @@ function isGuides(x: unknown): x is Guides {
   return Object.entries(x).every(([k, v]) => GUIDE_KINDS.includes(k as GuideKind) && num(v))
 }
 
+function isRules(x: unknown): x is RuleSettings {
+  return isObj(x) && typeof x.enabled === 'boolean' && typeof x.rail === 'boolean' && num(x.skirtingCm) && x.skirtingCm >= 0
+}
+
 function isVariant(x: unknown): x is StoredVariant {
   return (
     isStoredImage(x) &&
@@ -154,6 +162,7 @@ export function validateRecord(x: unknown): StoredProject | null {
   if (!Number.isInteger(x.active) || (x.active as number) < 0) return null
   if (x.variants.length > 0 && (x.active as number) >= x.variants.length) return null
   if (!isGuides(x.guides) || typeof x.showDims !== 'boolean' || !num(x.toleranceCm)) return null
+  if (x.rules !== undefined && !isRules(x.rules)) return null
   if (x.thumb !== null && !(x.thumb instanceof Blob)) return null
   return x as unknown as StoredProject
 }

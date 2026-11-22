@@ -41,6 +41,7 @@ export class GuideLayer implements Layer {
       box: activeMotif(this.project)?.box ?? null,
       guides: this.project.guides,
       showDims: this.project.showDims,
+      rules: this.project.rules,
     })
   }
 

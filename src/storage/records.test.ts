@@ -29,6 +29,7 @@ function project(over: Partial<Project> = {}): Project {
     ],
     active: 0,
     guides: { floor: 240, left: 10 },
+    rules: { enabled: true, rail: false, skirtingCm: 0 },
     showDims: true,
     toleranceCm: 5,
     ...over,
@@ -94,6 +95,20 @@ describe('validateRecord', () => {
     r.variants = []
     r.active = 0
     expect(validateRecord(r)).not.toBeNull()
+  })
+
+  it('keeps the wallPen settings and accepts projects saved without them', () => {
+    const r = good()
+    r.rules = { enabled: true, rail: true, skirtingCm: 8 }
+    expect(validateRecord(r)?.rules).toEqual({ enabled: true, rail: true, skirtingCm: 8 })
+    delete r.rules
+    expect(validateRecord(r)).not.toBeNull()
+  })
+
+  it('rejects broken wallPen settings', () => {
+    for (const bad of [{ enabled: 1, rail: false, skirtingCm: 0 }, { enabled: true, rail: false, skirtingCm: -1 }, { enabled: true }, 5]) {
+      expect(validateRecord({ ...good(), rules: bad })).toBeNull()
+    }
   })
 
   it('rejects junk and wrong versions', () => {

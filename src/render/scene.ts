@@ -1,5 +1,6 @@
 import type { MotifRenderer } from '../gl/motif-renderer'
 import { wallToImage } from '../math/calibration'
+import type { RuleSettings } from '../math/clearance'
 import type { Guides } from '../math/guides'
 import type { Motif, Wall } from '../model/types'
 import { drawAnnotations } from './annotations'
@@ -9,6 +10,7 @@ export interface SceneInput {
   motif: Motif
   guides: Guides
   showDims: boolean
+  rules?: RuleSettings
 }
 
 // Composes the wall photo, the motif (via WebGL, same pipeline as on screen) and the dimensions
@@ -52,6 +54,7 @@ export function renderScene(
     box: s.motif.box,
     guides: s.guides,
     showDims: s.showDims,
+    rules: s.rules,
   })
 
   if (band) {

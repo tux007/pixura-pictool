@@ -1,3 +1,4 @@
+import { limitValue, minDistance, type RuleSettings } from '../math/clearance'
 import { GUIDE_KINDS, GUIDE_SHORT, guideDistances, guideEndpoints, type Guides } from '../math/guides'
 import { cornerPoint, type Box, type Corner } from '../math/motif'
 import { formatNumber } from '../math/units'
@@ -7,6 +8,8 @@ import type { Calibration } from '../model/types'
 const GUIDE = '#22d3ee'
 const DIM = '#ffd166'
 const NEGATIVE = '#ff8a80'
+const FORBIDDEN = 'rgba(220, 38, 38, 0.22)'
+const LIMIT = '#ff6b6b'
 
 export interface Annotations {
   ctx: CanvasRenderingContext2D
@@ -19,9 +22,14 @@ export interface Annotations {
   box: Box | null
   guides: Guides
   showDims: boolean
+  // wallPen distances: when enabled, the forbidden strips next to each guide line are shaded
+  rules?: RuleSettings
 }
 
 export const fmtCm = (cm: number): string => `${formatNumber(cm, Math.abs(cm) >= 20 ? 0 : 1)} cm`
+
+// Minimum distances are whole numbers in the data sheet; keep them without decimals.
+export const fmtMin = (cm: number): string => (Number.isInteger(cm) ? `${cm} cm` : fmtCm(cm))
 
 function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, u: number, color = '#fff'): void {
   ctx.font = `600 ${13 * u}px system-ui, sans-serif`
@@ -65,6 +73,28 @@ export function drawAnnotations(a: Annotations): void {
   const { ctx, map, unit: u, cal, img, box, guides } = a
   ctx.save()
   ctx.lineCap = 'round'
+
+  // forbidden strip between each guide line and its minimum-distance line
+  if (a.rules?.enabled) {
+    for (const kind of GUIDE_KINDS) {
+      const v = guides[kind]
+      if (v === undefined) continue
+      const edge = guideEndpoints(cal, img, kind, v).map(map) as [Pt, Pt]
+      const lim = guideEndpoints(cal, img, kind, limitValue(kind, v, a.rules)).map(map) as [Pt, Pt]
+      if (![...edge, ...lim].every(finite)) continue
+      ctx.beginPath()
+      ctx.moveTo(edge[0].x, edge[0].y)
+      ctx.lineTo(edge[1].x, edge[1].y)
+      ctx.lineTo(lim[1].x, lim[1].y)
+      ctx.lineTo(lim[0].x, lim[0].y)
+      ctx.closePath()
+      ctx.fillStyle = FORBIDDEN
+      ctx.fill()
+      stroke(ctx, lim[0], lim[1], u, LIMIT, true)
+      const at = { x: lim[0].x + (lim[1].x - lim[0].x) * 0.5, y: lim[0].y + (lim[1].y - lim[0].y) * 0.5 }
+      label(ctx, `min. ${fmtMin(minDistance(kind, a.rules))}`, at, u, '#ffd0d0')
+    }
+  }
 
   for (const kind of GUIDE_KINDS) {
     const v = guides[kind]

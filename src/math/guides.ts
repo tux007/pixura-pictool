@@ -38,15 +38,25 @@ export interface Distance {
 const EPS = 1e-6
 const mean = (v: number[]): number => v.reduce((s, x) => s + x, 0) / Math.max(1, v.length)
 
-// Distances from the rotated motif's bounding box to each set line, plus the segment to draw.
-export function guideDistances(box: Box, guides: Guides): Distance[] {
+export interface Bounds {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+// Axis-aligned bounding box of the (rotated) motif in wall coordinates.
+export function boxBounds(box: Box): Bounds {
   const pts = CORNERS.map((c) => cornerPoint(box, c))
   const xs = pts.map((p) => p.x)
   const ys = pts.map((p) => p.y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+}
+
+// Distances from the rotated motif's bounding box to each set line, plus the segment to draw.
+export function guideDistances(box: Box, guides: Guides): Distance[] {
+  const pts = CORNERS.map((c) => cornerPoint(box, c))
+  const { minX, maxX, minY, maxY } = boxBounds(box)
   const xAtY = (y: number): number => mean(pts.filter((p) => Math.abs(p.y - y) < EPS).map((p) => p.x))
   const yAtX = (x: number): number => mean(pts.filter((p) => Math.abs(p.x - x) < EPS).map((p) => p.y))
 

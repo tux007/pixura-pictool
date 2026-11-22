@@ -6,6 +6,7 @@ import { download, shareFile } from '../export/share'
 import { MotifRenderer } from '../gl/motif-renderer'
 import { LoadError, loadImage } from '../image/load'
 import { imageToWall, wallToImage, wallWidthCm } from '../math/calibration'
+import { checkRules, DEFAULT_RULES, describeCheck } from '../math/clearance'
 import { GUIDE_SHORT, guideDistances } from '../math/guides'
 import { MAX_SIZE } from '../math/motif'
 import { formatNumber } from '../math/units'
@@ -30,6 +31,22 @@ const pad = (n: number): string => String(n).padStart(2, '0')
 const stamp = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const dateCh = (d: Date): string => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`
 const tol = (v: number): string => (Number.isInteger(v) ? String(v) : formatNumber(v, 1))
+
+// Word-wraps text for the export footer, which has a fixed width.
+function wrapText(text: string, max = 88): string[] {
+  const lines: string[] = []
+  let cur = ''
+  for (const word of text.split(' ')) {
+    if (cur && cur.length + 1 + word.length > max) {
+      lines.push(cur)
+      cur = word
+    } else {
+      cur = cur ? `${cur} ${word}` : word
+    }
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
 
 const toBlob = (c: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> =>
   new Promise((resolve, reject) =>
@@ -104,6 +121,7 @@ export function mountApp(root: HTMLElement): void {
     variants: [],
     active: 0,
     guides: {},
+    rules: { ...DEFAULT_RULES },
     showDims: true,
     toleranceCm: 5,
   }
@@ -130,6 +148,7 @@ export function mountApp(root: HTMLElement): void {
       scheduleSave()
     },
     () => removeVariant(),
+    () => rulesInfo(),
   )
   const guidesPanel = new GuidesPanel(viewport, project, () => refresh())
   const exportPanel = new ExportPanel(project, (kind, mode) => doExport(kind, mode), () => scheduleSave())
@@ -253,6 +272,7 @@ export function mountApp(root: HTMLElement): void {
     project.variants = []
     project.active = 0
     project.guides = {}
+    project.rules = { ...DEFAULT_RULES }
     sheet = 'motif'
     viewport.setImage(image)
     empty.hidden = true
@@ -379,6 +399,7 @@ export function mountApp(root: HTMLElement): void {
     project.variants = variants
     project.active = rec.active
     project.guides = rec.guides
+    project.rules = rec.rules ?? { ...DEFAULT_RULES }
     project.showDims = rec.showDims
     project.toleranceCm = rec.toleranceCm
     sheet = 'motif'
@@ -424,12 +445,24 @@ export function mountApp(root: HTMLElement): void {
     refresh()
   }
 
+  function rulesInfo(): { text: string; state: 'ok' | 'violated' | 'unchecked' | 'off' } | null {
+    const m = activeMotif(project)
+    if (!m) return null
+    const c = checkRules(m.box, project.guides, project.rules)
+    return { text: describeCheck(c, project.rules), state: c.state }
+  }
+
   function summary(index: number, now: Date): string[] {
     const m = project.variants[index]
     if (!m) return []
     const lines = [`Variante ${index + 1}: Motiv ${formatNumber(m.box.w)} × ${formatNumber(m.box.h)} cm`]
     const dist = guideDistances(m.box, project.guides)
     if (dist.length) lines.push('Abstände: ' + dist.map((d) => `${GUIDE_SHORT[d.kind]} ${fmtCm(d.cm)}`).join(', '))
+    if (project.rules.enabled) {
+      const check = checkRules(m.box, project.guides, project.rules)
+      if (check.state !== 'unchecked') lines.push(...wrapText(`wallPen: ${describeCheck(check, project.rules)}`))
+      lines.push('Vor Ort prüfen: Druckbereich hindernisfrei, 90 cm vor der Wand an Decke und Boden frei.')
+    }
     lines.push(`Vorschau, Massangaben ca. ±${tol(project.toleranceCm)} cm`)
     lines.push(`Erstellt am ${dateCh(now)} mit Pixura Wandvorschau`)
     return lines
@@ -445,7 +478,7 @@ export function mountApp(root: HTMLElement): void {
     const now = new Date()
     const idx = project.active
     const lines = summary(idx, now)
-    const scene = { wall, motif, guides: project.guides, showDims: project.showDims }
+    const scene = { wall, motif, guides: project.guides, showDims: project.showDims, rules: project.rules }
     const name = `wandvorschau-variante-${idx + 1}-${stamp(now)}`
     let file: File
     if (kind === 'png') {
