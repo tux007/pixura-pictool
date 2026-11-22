@@ -41,6 +41,7 @@ export class MotifPanel {
   constructor(
     private get: () => Motif | null,
     private onEdit: () => void,
+    private onRemove: () => void,
   ) {
     this.root.setAttribute('aria-label', 'Motiv')
     this.root.hidden = true
@@ -55,7 +56,11 @@ export class MotifPanel {
     rot.append(field('Drehung', this.rotation), this.rotationOut)
     const op = el('div', 'row')
     op.append(field('Deckkraft', this.opacity), this.opacityOut)
-    this.root.append(this.readout, sizes, rot, op)
+    const remove = el('button', 'btn', 'Variante entfernen')
+    remove.type = 'button'
+    remove.dataset.testid = 'variant-remove'
+    remove.addEventListener('click', () => this.onRemove())
+    this.root.append(this.readout, sizes, rot, op, remove)
 
     this.bindSize(this.width, 'w')
     this.bindSize(this.height, 'h')

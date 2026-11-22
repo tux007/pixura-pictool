@@ -1,3 +1,4 @@
+import type { Guides } from '../math/guides'
 import type { Mat3 } from '../math/homography'
 import type { Box } from '../math/motif'
 import type { PerspectiveQuality } from '../math/perspective'
@@ -35,3 +36,17 @@ export interface Motif {
   opacity: number
   lockAspect: boolean
 }
+
+export const MAX_VARIANTS = 3
+
+// One wall, up to three variants (each with its own motif image, size and position).
+export interface Project {
+  wall: Wall | null
+  variants: Motif[]
+  active: number
+  guides: Guides
+  showDims: boolean
+  toleranceCm: number
+}
+
+export const activeMotif = (p: Project): Motif | null => p.variants[p.active] ?? null

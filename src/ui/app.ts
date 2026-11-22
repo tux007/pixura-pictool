@@ -1,14 +1,35 @@
+import { buildPdf } from '../export/pdf'
+import { download, shareFile } from '../export/share'
 import { MotifRenderer } from '../gl/motif-renderer'
 import { LoadError, loadImage } from '../image/load'
 import { imageToWall, wallToImage, wallWidthCm } from '../math/calibration'
+import { GUIDE_SHORT, guideDistances } from '../math/guides'
 import { MAX_SIZE } from '../math/motif'
 import { formatNumber } from '../math/units'
-import type { Calibration, Motif, Wall } from '../model/types'
+import { activeMotif, MAX_VARIANTS, type Calibration, type Project } from '../model/types'
+import { fmtCm } from '../render/annotations'
+import { renderScene } from '../render/scene'
 import { CalibrationFlow } from './calibrate'
 import { el } from './dom'
+import { ExportPanel, type ExportKind, type ExportMode } from './export-panel'
+import { GuideLayer } from './guide-layer'
+import { GuidesPanel } from './guides-panel'
 import { MotifLayer } from './motif-layer'
 import { MotifPanel } from './motif-panel'
+import { openCompare, VariantTabs } from './variants'
 import { Viewport } from './viewport'
+
+const EXPORT_WIDTH = 3000
+
+const pad = (n: number): string => String(n).padStart(2, '0')
+const stamp = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+const dateCh = (d: Date): string => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`
+const tol = (v: number): string => (Number.isInteger(v) ? String(v) : formatNumber(v, 1))
+
+const toBlob = (c: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> =>
+  new Promise((resolve, reject) =>
+    c.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), type, quality),
+  )
 
 function fileInput(testId: string, capture?: string): HTMLInputElement {
   const input = el('input')
@@ -27,15 +48,20 @@ function button(label: string, testId: string): HTMLButtonElement {
   return b
 }
 
+type Sheet = 'motif' | 'guides' | 'export'
+
 export function mountApp(root: HTMLElement): void {
   const bar = el('header', 'bar')
   const pick = button('Foto wählen', 'pick')
   const camera = button('Kamera', 'camera')
   const calibrate = button('Kalibrieren', 'calibrate')
   const motifBtn = button('Motiv', 'motif')
+  const guidesBtn = button('Linien', 'guides')
+  const exportBtn = button('Export', 'export')
+  const compareBtn = button('Vergleich', 'compare')
   const fit = button('Einpassen', 'fit')
   const info = el('span', 'info')
-  bar.append(pick, camera, calibrate, motifBtn, fit, info)
+  bar.append(pick, camera, calibrate, motifBtn, guidesBtn, exportBtn, compareBtn, fit, info)
 
   const stage = el('main', 'stage')
   // bottom to top: wall photo, motif (WebGL), transparent overlay that takes the input
@@ -58,8 +84,9 @@ export function mountApp(root: HTMLElement): void {
   const motifEl = fileInput('motif-input')
   root.append(bar, stage, fileEl, cameraEl, motifEl)
 
-  let wall: Wall | null = null
-  let motif: Motif | null = null
+  const project: Project = { wall: null, variants: [], active: 0, guides: {}, showDims: true, toleranceCm: 5 }
+  let sheet: Sheet = 'motif'
+  let exportGl: MotifRenderer | null = null
 
   const viewport = new Viewport(canvas, base)
   const renderer = MotifRenderer.create(glCanvas)
@@ -67,26 +94,65 @@ export function mountApp(root: HTMLElement): void {
     banner.textContent = 'Dieser Browser unterstützt WebGL 2 nicht. Motive können nicht angezeigt werden.'
     banner.hidden = false
   }
+
+  const syncPanels = (): void => {
+    panel.sync()
+    guidesPanel.sync()
+  }
   const panel = new MotifPanel(
-    () => motif,
-    () => viewport.redraw(),
+    () => activeMotif(project),
+    () => {
+      viewport.redraw()
+      guidesPanel.sync()
+    },
+    () => removeVariant(),
   )
-  const motifLayer = new MotifLayer(viewport, renderer, () => panel.sync())
+  const guidesPanel = new GuidesPanel(viewport, project, () => refresh())
+  const exportPanel = new ExportPanel(project, (kind, mode) => doExport(kind, mode))
+  const tabs = new VariantTabs(
+    project,
+    (i) => {
+      project.active = i
+      refresh()
+    },
+    () => addVariant(),
+  )
+  const guideLayer = new GuideLayer(viewport, project, syncPanels)
+  const motifLayer = new MotifLayer(viewport, renderer, project, syncPanels)
   const flow = new CalibrationFlow(viewport, stage, (cal) => onCalibrated(cal))
+  // hit-tested last to first: calibration, motif handles, then guide lines
+  viewport.addLayer(guideLayer)
   viewport.addLayer(motifLayer)
   viewport.addLayer(flow)
-  stage.append(panel.root)
+  stage.append(tabs.root, panel.root, guidesPanel.root, exportPanel.root)
 
-  const refresh = (): void => {
+  function refresh(): void {
+    const { wall } = project
+    const cal = wall?.calibration
+    const motif = activeMotif(project)
     const calibrating = flow.active
+
     pick.disabled = camera.disabled = calibrating
     calibrate.disabled = !wall || calibrating
-    motifBtn.disabled = !wall?.calibration || calibrating || !renderer
+    motifBtn.disabled = !cal || calibrating || !renderer
+    guidesBtn.disabled = !cal || calibrating
+    exportBtn.disabled = !motif || calibrating
+    compareBtn.disabled = project.variants.length < 2 || calibrating
     fit.disabled = !wall
+    guidesBtn.setAttribute('aria-pressed', String(sheet === 'guides'))
+    exportBtn.setAttribute('aria-pressed', String(sheet === 'export'))
+
     motifLayer.enabled = !calibrating
-    panel.show(!!motif && !calibrating)
+    guideLayer.enabled = !calibrating
+    guideLayer.editable = sheet === 'guides'
+    panel.show(!!motif && sheet === 'motif' && !calibrating)
+    guidesPanel.show(!!cal && sheet === 'guides' && !calibrating)
+    exportPanel.show(!!motif && sheet === 'export' && !calibrating)
+    tabs.root.hidden = !motif || calibrating
+    tabs.render()
+    guidesPanel.sync()
+
     const parts: string[] = []
-    const cal = wall?.calibration
     if (wall) parts.push(`${wall.width} × ${wall.height} px`)
     if (cal?.mode === 'linear') parts.push(`${formatNumber(cal.pxPerCm, 2)} px/cm`)
     if (cal?.mode === 'perspective') {
@@ -125,12 +191,12 @@ export function mountApp(root: HTMLElement): void {
   const onWall = async (input: HTMLInputElement): Promise<void> => {
     const image = await load(input)
     if (!image) return
-    wall?.image.close()
-    motif?.image.close()
-    motif = null
-    wall = { image, width: image.width, height: image.height, calibration: null }
-    motifLayer.wall = wall
-    motifLayer.motif = null
+    project.wall?.image.close()
+    project.wall = { image, width: image.width, height: image.height, calibration: null }
+    project.variants = []
+    project.active = 0
+    project.guides = {}
+    sheet = 'motif'
     viewport.setImage(image)
     empty.hidden = true
     refresh()
@@ -138,45 +204,135 @@ export function mountApp(root: HTMLElement): void {
 
   const onMotif = async (): Promise<void> => {
     const image = await load(motifEl)
+    const { wall } = project
     const cal = wall?.calibration
     if (!image || !wall || !cal) return
-    motif?.image.close()
     const aspect = image.width / image.height
-    const w = Math.min(MAX_SIZE, Math.max(5, Math.round((wallWidthCm(cal, wall.width) * 0.4) / 5) * 5))
-    const c = imageToWall(cal, viewport.centerImagePoint())
-    motif = {
-      image,
-      aspect,
-      opacity: 100,
-      lockAspect: true,
-      box: { x: c.x, y: c.y, w, h: w / aspect, rot: 0 },
+    const current = activeMotif(project)
+    if (current) {
+      // another motif in the active variant: keep position and width
+      current.image = image
+      current.aspect = aspect
+      current.box = { ...current.box, h: current.box.w / aspect, rot: 0 }
+    } else {
+      const w = Math.min(MAX_SIZE, Math.max(5, Math.round((wallWidthCm(cal, wall.width) * 0.4) / 5) * 5))
+      const c = imageToWall(cal, viewport.centerImagePoint())
+      project.variants = [
+        { image, aspect, opacity: 100, lockAspect: true, box: { x: c.x, y: c.y, w, h: w / aspect, rot: 0 } },
+      ]
+      project.active = 0
     }
-    motifLayer.motif = motif
+    sheet = 'motif'
     refresh()
   }
 
-  const onCalibrated = (cal: Calibration | null): void => {
+  function addVariant(): void {
+    const m = activeMotif(project)
+    if (!m || project.variants.length >= MAX_VARIANTS) return
+    project.variants.push({ ...m, box: { ...m.box } })
+    project.active = project.variants.length - 1
+    sheet = 'motif'
+    refresh()
+  }
+
+  function removeVariant(): void {
+    project.variants.splice(project.active, 1)
+    project.active = Math.max(0, Math.min(project.active, project.variants.length - 1))
+    refresh()
+  }
+
+  function onCalibrated(cal: Calibration | null): void {
+    const { wall } = project
     if (cal && wall) {
-      // The wall coordinate system changes with the calibration: keep the motif's centre where it
-      // appears in the photo. Its size in cm stays as entered.
+      // The wall coordinate system changes with the calibration: keep every motif's centre where
+      // it appears in the photo (size in cm stays as entered). Guide lines cannot be carried over.
       const old = wall.calibration
-      if (motif && old) {
-        const at = imageToWall(cal, wallToImage(old, motif.box))
-        motif.box = { ...motif.box, x: at.x, y: at.y }
+      if (old) {
+        for (const m of project.variants) {
+          const at = imageToWall(cal, wallToImage(old, m.box))
+          m.box = { ...m.box, x: at.x, y: at.y }
+        }
+      }
+      if (Object.keys(project.guides).length) {
+        project.guides = {}
+        showError('Die Hilfslinien wurden zurückgesetzt, weil sich die Kalibrierung geändert hat.')
       }
       wall.calibration = cal
     }
     refresh()
   }
 
+  function summary(index: number, now: Date): string[] {
+    const m = project.variants[index]
+    if (!m) return []
+    const lines = [`Variante ${index + 1}: Motiv ${formatNumber(m.box.w)} × ${formatNumber(m.box.h)} cm`]
+    const dist = guideDistances(m.box, project.guides)
+    if (dist.length) lines.push('Abstände: ' + dist.map((d) => `${GUIDE_SHORT[d.kind]} ${fmtCm(d.cm)}`).join(', '))
+    lines.push(`Vorschau, Massangaben ca. ±${tol(project.toleranceCm)} cm`)
+    lines.push(`Erstellt am ${dateCh(now)} mit Pixura Wandvorschau`)
+    return lines
+  }
+
+  async function doExport(kind: ExportKind, mode: ExportMode): Promise<string> {
+    const { wall } = project
+    const motif = activeMotif(project)
+    if (!wall || !motif) return 'Es gibt nichts zu exportieren.'
+    exportGl ??= MotifRenderer.create(document.createElement('canvas'))
+    if (!exportGl) return 'WebGL 2 ist nicht verfügbar.'
+
+    const now = new Date()
+    const idx = project.active
+    const lines = summary(idx, now)
+    const scene = { wall, motif, guides: project.guides, showDims: project.showDims }
+    const name = `wandvorschau-variante-${idx + 1}-${stamp(now)}`
+    let file: File
+    if (kind === 'png') {
+      const blob = await toBlob(renderScene(exportGl, scene, EXPORT_WIDTH, lines), 'image/png')
+      file = new File([blob], `${name}.png`, { type: 'image/png' })
+    } else {
+      const c = renderScene(exportGl, scene, EXPORT_WIDTH)
+      const jpeg = new Uint8Array(await (await toBlob(c, 'image/jpeg', 0.92)).arrayBuffer())
+      const pdf = buildPdf({
+        jpeg,
+        imgW: c.width,
+        imgH: c.height,
+        title: `Pixura Wandvorschau - Variante ${idx + 1}`,
+        lines,
+      })
+      file = new File([pdf as BlobPart], `${name}.pdf`, { type: 'application/pdf' })
+    }
+
+    const label = kind.toUpperCase()
+    if (mode === 'download') {
+      download(file)
+      return `${label} gespeichert.`
+    }
+    const result = await shareFile(file, 'Pixura Wandvorschau')
+    if (result === 'shared') return `${label} geteilt.`
+    if (result === 'cancelled') return 'Teilen abgebrochen.'
+    return `Teilen nicht möglich, ${label} wurde gespeichert.`
+  }
+
   pick.addEventListener('click', () => fileEl.click())
   camera.addEventListener('click', () => cameraEl.click())
   motifBtn.addEventListener('click', () => motifEl.click())
   fit.addEventListener('click', () => viewport.fit())
+  guidesBtn.addEventListener('click', () => {
+    sheet = sheet === 'guides' ? 'motif' : 'guides'
+    refresh()
+  })
+  exportBtn.addEventListener('click', () => {
+    sheet = sheet === 'export' ? 'motif' : 'export'
+    refresh()
+  })
+  compareBtn.addEventListener('click', () => {
+    exportGl ??= MotifRenderer.create(document.createElement('canvas'))
+    if (exportGl) openCompare(project, exportGl)
+  })
   calibrate.addEventListener('click', () => {
-    if (!wall) return
+    if (!project.wall) return
     banner.hidden = true
-    flow.start(wall.image)
+    flow.start(project.wall.image)
     refresh()
   })
   fileEl.addEventListener('change', () => void onWall(fileEl))

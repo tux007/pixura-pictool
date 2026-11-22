@@ -11,7 +11,7 @@ import {
 } from '../math/motif'
 import { toScreen, type Pt, type View } from '../math/view'
 import type { MotifRenderer } from '../gl/motif-renderer'
-import type { Motif, Wall } from '../model/types'
+import { activeMotif, type Motif, type Project, type Wall } from '../model/types'
 import type { Layer } from './layer'
 import type { Viewport } from './viewport'
 
@@ -26,16 +26,23 @@ type Drag =
 
 // The motif pixels come from the WebGL renderer; this layer draws the handles and handles input.
 export class MotifLayer implements Layer {
-  wall: Wall | null = null
-  motif: Motif | null = null
   enabled = true
   private drag: Drag | null = null
 
   constructor(
     private vp: Viewport,
     private gl: MotifRenderer | null,
+    private project: Project,
     private onChange: () => void,
   ) {}
+
+  private get wall(): Wall | null {
+    return this.project.wall
+  }
+
+  private get motif(): Motif | null {
+    return activeMotif(this.project)
+  }
 
   private screen(view: View, wall: Pt): Pt {
     const cal = this.wall?.calibration

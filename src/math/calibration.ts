@@ -33,6 +33,10 @@ export function imageToWall(c: Calibration, p: Pt): Pt {
   return c.mode === 'linear' ? { x: p.x / c.pxPerCm, y: p.y / c.pxPerCm } : apply3(c.hInv, p)
 }
 
+// Homogeneous denominator of the wall -> image mapping; > 0 in front of the camera, constant for linear.
+export const wallW = (c: Calibration, p: Pt): number =>
+  c.mode === 'linear' ? 1 : (c.h[6] ?? 0) * p.x + (c.h[7] ?? 0) * p.y + (c.h[8] ?? 0)
+
 export function imageToWallMatrix(c: Calibration): Mat3 {
   if (c.mode === 'perspective') return c.hInv
   const k = 1 / c.pxPerCm
