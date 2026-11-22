@@ -9,10 +9,12 @@ export class ExportPanel {
   readonly root = el('section', 'sheet')
   private note = el('p', 'note')
   private buttons: HTMLButtonElement[] = []
+  private tol = el('input')
 
   constructor(
     private project: Project,
     private run: (kind: ExportKind, mode: ExportMode) => Promise<string>,
+    private onChange: () => void,
   ) {
     this.root.setAttribute('aria-label', 'Export')
     this.root.hidden = true
@@ -24,7 +26,7 @@ export class ExportPanel {
       'Exportiert die aktive Variante mit Wandfoto, Motiv, eingezeichneten Massen, Datum und Hinweis.',
     )
 
-    const tol = el('input')
+    const tol = this.tol
     tol.type = 'text'
     tol.inputMode = 'decimal'
     tol.autocomplete = 'off'
@@ -32,7 +34,10 @@ export class ExportPanel {
     tol.dataset.testid = 'tolerance'
     const commit = (): void => {
       const v = Number(tol.value.trim().replace(',', '.'))
-      if (Number.isFinite(v) && v >= 0 && v <= 100) project.toleranceCm = v
+      if (Number.isFinite(v) && v >= 0 && v <= 100 && v !== project.toleranceCm) {
+        project.toleranceCm = v
+        this.onChange()
+      }
       tol.value = this.fmt(project.toleranceCm)
     }
     tol.addEventListener('change', commit)
@@ -81,5 +86,6 @@ export class ExportPanel {
 
   show(visible: boolean): void {
     this.root.hidden = !visible
+    if (visible && document.activeElement !== this.tol) this.tol.value = this.fmt(this.project.toleranceCm)
   }
 }

@@ -20,7 +20,9 @@ function precache(): Plugin {
       const sw = bundle['sw.js']
       if (!sw || sw.type !== 'chunk') throw new Error('sw.js entry missing from bundle')
       const built = Object.keys(bundle).filter((f) => f !== 'sw.js')
-      const files = ['/', ...built.map((f) => '/' + f), ...listFiles('public').map((f) => '/' + f)]
+      // `_headers` is read by Netlify and not served, so it must not be precached
+      const pub = listFiles('public').filter((f) => f !== '_headers')
+      const files = ['/', ...built.map((f) => '/' + f), ...pub.map((f) => '/' + f)]
       const html = bundle['index.html']
       const hash = createHash('sha256')
         .update(files.join('\n'))

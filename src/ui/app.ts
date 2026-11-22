@@ -1,3 +1,5 @@
+import { clearAll, deleteProject, duplicateProject, getProject, listProjects, putProject } from '../storage/db'
+import { defaultName, newId, toFile, toRecord } from '../storage/records'
 import { buildPdf } from '../export/pdf'
 import { download, shareFile } from '../export/share'
 import { MotifRenderer } from '../gl/motif-renderer'
@@ -16,6 +18,8 @@ import { GuideLayer } from './guide-layer'
 import { GuidesPanel } from './guides-panel'
 import { MotifLayer } from './motif-layer'
 import { MotifPanel } from './motif-panel'
+import { openHelp } from './help'
+import { ProjectsPanel } from './projects-panel'
 import { openCompare, VariantTabs } from './variants'
 import { Viewport } from './viewport'
 
@@ -48,7 +52,7 @@ function button(label: string, testId: string): HTMLButtonElement {
   return b
 }
 
-type Sheet = 'motif' | 'guides' | 'export'
+type Sheet = 'motif' | 'guides' | 'export' | 'projects'
 
 export function mountApp(root: HTMLElement): void {
   const bar = el('header', 'bar')
@@ -59,9 +63,12 @@ export function mountApp(root: HTMLElement): void {
   const guidesBtn = button('Linien', 'guides')
   const exportBtn = button('Export', 'export')
   const compareBtn = button('Vergleich', 'compare')
+  const projectsBtn = button('Projekte', 'projects')
+  const helpBtn = button('Anleitung', 'help')
   const fit = button('Einpassen', 'fit')
   const info = el('span', 'info')
-  bar.append(pick, camera, calibrate, motifBtn, guidesBtn, exportBtn, compareBtn, fit, info)
+  const title = el('h1', 'sr-only', 'Pixura Wandvorschau')
+  bar.append(title, pick, camera, calibrate, motifBtn, guidesBtn, exportBtn, compareBtn, projectsBtn, helpBtn, fit, info)
 
   const stage = el('main', 'stage')
   // bottom to top: wall photo, motif (WebGL), transparent overlay that takes the input
@@ -73,7 +80,11 @@ export function mountApp(root: HTMLElement): void {
   canvas.dataset.testid = 'viewport'
   canvas.setAttribute('role', 'img')
   canvas.setAttribute('aria-label', 'Wandfoto')
-  const empty = el('p', 'empty', 'Wandfoto laden, um zu beginnen.')
+  const empty = el(
+    'p',
+    'empty',
+    'Wandfoto laden, um zu beginnen. Tipps zum Fotografieren stehen unter „Anleitung“.',
+  )
   const banner = el('p', 'banner')
   banner.setAttribute('role', 'alert')
   banner.hidden = true
@@ -84,7 +95,17 @@ export function mountApp(root: HTMLElement): void {
   const motifEl = fileInput('motif-input')
   root.append(bar, stage, fileEl, cameraEl, motifEl)
 
-  const project: Project = { wall: null, variants: [], active: 0, guides: {}, showDims: true, toleranceCm: 5 }
+  const project: Project = {
+    id: newId(),
+    name: '',
+    updated: 0,
+    wall: null,
+    variants: [],
+    active: 0,
+    guides: {},
+    showDims: true,
+    toleranceCm: 5,
+  }
   let sheet: Sheet = 'motif'
   let exportGl: MotifRenderer | null = null
 
@@ -98,17 +119,42 @@ export function mountApp(root: HTMLElement): void {
   const syncPanels = (): void => {
     panel.sync()
     guidesPanel.sync()
+    scheduleSave()
   }
   const panel = new MotifPanel(
     () => activeMotif(project),
     () => {
       viewport.redraw()
       guidesPanel.sync()
+      scheduleSave()
     },
     () => removeVariant(),
   )
   const guidesPanel = new GuidesPanel(viewport, project, () => refresh())
-  const exportPanel = new ExportPanel(project, (kind, mode) => doExport(kind, mode))
+  const exportPanel = new ExportPanel(project, (kind, mode) => doExport(kind, mode), () => scheduleSave())
+  const projectsPanel = new ProjectsPanel(
+    {
+      list: () => listProjects(),
+      open: (id) => openProject(id),
+      duplicate: async (id) => {
+        await flushSave()
+        await duplicateProject(id)
+      },
+      remove: async (id) => {
+        if (id === project.id) {
+          // deleted while open: stay on screen, but stop saving it until another project is loaded
+          clearTimeout(saveTimer)
+          detached = true
+        }
+        await deleteProject(id)
+      },
+      clearAll: async () => {
+        clearTimeout(saveTimer)
+        await clearAll()
+      },
+    },
+    () => project.id,
+  )
   const tabs = new VariantTabs(
     project,
     (i) => {
@@ -124,7 +170,7 @@ export function mountApp(root: HTMLElement): void {
   viewport.addLayer(guideLayer)
   viewport.addLayer(motifLayer)
   viewport.addLayer(flow)
-  stage.append(tabs.root, panel.root, guidesPanel.root, exportPanel.root)
+  stage.append(tabs.root, panel.root, guidesPanel.root, exportPanel.root, projectsPanel.root)
 
   function refresh(): void {
     const { wall } = project
@@ -139,8 +185,10 @@ export function mountApp(root: HTMLElement): void {
     exportBtn.disabled = !motif || calibrating
     compareBtn.disabled = project.variants.length < 2 || calibrating
     fit.disabled = !wall
+    projectsBtn.disabled = calibrating
     guidesBtn.setAttribute('aria-pressed', String(sheet === 'guides'))
     exportBtn.setAttribute('aria-pressed', String(sheet === 'export'))
+    projectsBtn.setAttribute('aria-pressed', String(sheet === 'projects'))
 
     motifLayer.enabled = !calibrating
     guideLayer.enabled = !calibrating
@@ -148,6 +196,7 @@ export function mountApp(root: HTMLElement): void {
     panel.show(!!motif && sheet === 'motif' && !calibrating)
     guidesPanel.show(!!cal && sheet === 'guides' && !calibrating)
     exportPanel.show(!!motif && sheet === 'export' && !calibrating)
+    projectsPanel.show(sheet === 'projects' && !calibrating)
     tabs.root.hidden = !motif || calibrating
     tabs.render()
     guidesPanel.sync()
@@ -164,6 +213,7 @@ export function mountApp(root: HTMLElement): void {
     if (cal?.mode === 'linear') canvas.dataset.pxPerCm = cal.pxPerCm.toFixed(4)
     else delete canvas.dataset.pxPerCm
     viewport.redraw()
+    scheduleSave()
   }
 
   const showError = (msg: string): void => {
@@ -171,7 +221,7 @@ export function mountApp(root: HTMLElement): void {
     banner.hidden = false
   }
 
-  const load = async (input: HTMLInputElement): Promise<ImageBitmap | null> => {
+  const load = async (input: HTMLInputElement): Promise<{ image: ImageBitmap; file: File } | null> => {
     const file = input.files?.[0]
     input.value = ''
     if (!file) return null
@@ -179,7 +229,7 @@ export function mountApp(root: HTMLElement): void {
     const prev = info.textContent
     info.textContent = 'Bild wird geladen …'
     try {
-      return await loadImage(file)
+      return { image: await loadImage(file), file }
     } catch (err) {
       showError(err instanceof LoadError ? err.message : 'Das Bild konnte nicht geladen werden.')
       return null
@@ -189,10 +239,16 @@ export function mountApp(root: HTMLElement): void {
   }
 
   const onWall = async (input: HTMLInputElement): Promise<void> => {
-    const image = await load(input)
-    if (!image) return
+    const loaded = await load(input)
+    if (!loaded) return
+    const { image, file } = loaded
+    await flushSave()
     project.wall?.image.close()
-    project.wall = { image, width: image.width, height: image.height, calibration: null }
+    detached = false
+    project.id = newId()
+    project.updated = Date.now()
+    project.name = defaultName(project.updated)
+    project.wall = { image, source: file, width: image.width, height: image.height, calibration: null }
     project.variants = []
     project.active = 0
     project.guides = {}
@@ -203,26 +259,131 @@ export function mountApp(root: HTMLElement): void {
   }
 
   const onMotif = async (): Promise<void> => {
-    const image = await load(motifEl)
+    const loaded = await load(motifEl)
     const { wall } = project
     const cal = wall?.calibration
-    if (!image || !wall || !cal) return
+    if (!loaded || !wall || !cal) return
+    const { image, file } = loaded
     const aspect = image.width / image.height
     const current = activeMotif(project)
     if (current) {
       // another motif in the active variant: keep position and width
       current.image = image
+      current.source = file
       current.aspect = aspect
       current.box = { ...current.box, h: current.box.w / aspect, rot: 0 }
     } else {
       const w = Math.min(MAX_SIZE, Math.max(5, Math.round((wallWidthCm(cal, wall.width) * 0.4) / 5) * 5))
       const c = imageToWall(cal, viewport.centerImagePoint())
       project.variants = [
-        { image, aspect, opacity: 100, lockAspect: true, box: { x: c.x, y: c.y, w, h: w / aspect, rot: 0 } },
+        {
+          image,
+          source: file,
+          aspect,
+          opacity: 100,
+          lockAspect: true,
+          box: { x: c.x, y: c.y, w, h: w / aspect, rot: 0 },
+        },
       ]
       project.active = 0
     }
     sheet = 'motif'
+    refresh()
+  }
+
+  // --- persistence: every change is saved to IndexedDB after a short pause ---
+
+  const getExportGl = (): MotifRenderer | null => {
+    exportGl ??= MotifRenderer.create(document.createElement('canvas'))
+    return exportGl
+  }
+
+  async function makeThumb(): Promise<Blob | null> {
+    const { wall } = project
+    if (!wall) return null
+    const motif = activeMotif(project)
+    const gl = getExportGl()
+    let c: HTMLCanvasElement
+    if (motif && wall.calibration && gl) {
+      c = renderScene(gl, { wall, motif, guides: {}, showDims: false }, 320)
+    } else {
+      const k = Math.min(1, 320 / wall.width)
+      c = document.createElement('canvas')
+      c.width = Math.max(1, Math.round(wall.width * k))
+      c.height = Math.max(1, Math.round(wall.height * k))
+      c.getContext('2d')?.drawImage(wall.image, 0, 0, c.width, c.height)
+    }
+    return toBlob(c, 'image/jpeg', 0.7)
+  }
+
+  let saveTimer = 0
+  let saveChain: Promise<void> = Promise.resolve()
+  let saveFailed = false
+  let detached = false
+
+  async function saveNow(): Promise<void> {
+    if (!project.wall || detached) return
+    try {
+      project.updated = Date.now()
+      await putProject(toRecord(project, await makeThumb()))
+      saveFailed = false
+      void navigator.storage?.persist?.()
+    } catch {
+      if (!saveFailed) showError('Speichern auf diesem Gerät ist nicht möglich (Speicher voll oder gesperrt).')
+      saveFailed = true
+    }
+  }
+
+  function scheduleSave(): void {
+    if (!project.wall || detached) return
+    clearTimeout(saveTimer)
+    saveTimer = window.setTimeout(() => {
+      saveChain = saveChain.then(saveNow)
+    }, 800)
+  }
+
+  async function flushSave(): Promise<void> {
+    clearTimeout(saveTimer)
+    saveChain = saveChain.then(saveNow)
+    await saveChain
+  }
+
+  async function openProject(id: string): Promise<void> {
+    const rec = await getProject(id)
+    if (!rec) throw new Error('project unreadable')
+    const wallImage = await loadImage(toFile(rec.wall))
+    const variants = await Promise.all(
+      rec.variants.map(async (v) => ({
+        image: await loadImage(toFile(v)),
+        source: toFile(v),
+        box: v.box,
+        aspect: v.aspect,
+        opacity: v.opacity,
+        lockAspect: v.lockAspect,
+      })),
+    )
+    await flushSave()
+    project.wall?.image.close()
+    detached = false
+    project.id = rec.id
+    project.name = rec.name
+    project.updated = rec.updated
+    project.wall = {
+      image: wallImage,
+      source: toFile(rec.wall),
+      width: wallImage.width,
+      height: wallImage.height,
+      calibration: rec.calibration,
+    }
+    project.variants = variants
+    project.active = rec.active
+    project.guides = rec.guides
+    project.showDims = rec.showDims
+    project.toleranceCm = rec.toleranceCm
+    sheet = 'motif'
+    banner.hidden = true
+    viewport.setImage(wallImage)
+    empty.hidden = true
     refresh()
   }
 
@@ -277,7 +438,7 @@ export function mountApp(root: HTMLElement): void {
     const { wall } = project
     const motif = activeMotif(project)
     if (!wall || !motif) return 'Es gibt nichts zu exportieren.'
-    exportGl ??= MotifRenderer.create(document.createElement('canvas'))
+    const exportGl = getExportGl()
     if (!exportGl) return 'WebGL 2 ist nicht verfügbar.'
 
     const now = new Date()
@@ -326,9 +487,14 @@ export function mountApp(root: HTMLElement): void {
     refresh()
   })
   compareBtn.addEventListener('click', () => {
-    exportGl ??= MotifRenderer.create(document.createElement('canvas'))
-    if (exportGl) openCompare(project, exportGl)
+    const gl = getExportGl()
+    if (gl) openCompare(project, gl)
   })
+  projectsBtn.addEventListener('click', () => {
+    sheet = sheet === 'projects' ? 'motif' : 'projects'
+    refresh()
+  })
+  helpBtn.addEventListener('click', openHelp)
   calibrate.addEventListener('click', () => {
     if (!project.wall) return
     banner.hidden = true

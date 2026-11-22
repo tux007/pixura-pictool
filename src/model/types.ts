@@ -24,6 +24,8 @@ export type Calibration = LinearCalibration | PerspectiveCalibration
 
 export interface Wall {
   image: ImageBitmap
+  // the file the user picked; kept so the project can be stored and decoded again
+  source: File
   width: number
   height: number
   calibration: Calibration | null
@@ -31,6 +33,7 @@ export interface Wall {
 
 export interface Motif {
   image: ImageBitmap
+  source: File
   box: Box
   aspect: number
   opacity: number
@@ -41,6 +44,9 @@ export const MAX_VARIANTS = 3
 
 // One wall, up to three variants (each with its own motif image, size and position).
 export interface Project {
+  id: string
+  name: string
+  updated: number
   wall: Wall | null
   variants: Motif[]
   active: number
