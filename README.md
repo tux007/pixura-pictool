@@ -14,6 +14,7 @@ Web-Tool für den Kundentermin: Wandfoto laden, eine bekannte Strecke oder ein b
 | Kalibrierung | **Strecke (2 Punkte)** für frontale Fotos, **Rechteck (4 Punkte)** mit Perspektive (Homographie), Lupe, Warnungen und Kalibrierfehler |
 | Motiv | Breite oder Höhe in cm/m eingeben, Seitenverhältnis sperrbar, Eckgriffe, Drehgriff, Deckkraft, Live-Masse |
 | Hilfslinien | Boden, Decke, linke und rechte Wandkante; zeigt die Abstände des Motivs in cm |
+| wallPen-Abstände | Prüft das Motiv gegen die Mindestabstände des wallPen-Druckers (Decke 40 cm, Innenecken je 10 cm, Boden 25 cm bzw. 30 cm mit Schiene, ab Oberkante der Fussleiste). Sperrzonen im Bild, Reserve je Seite, maximal mögliche Grösse und „Maximal einpassen“; Hinweise auch im Export |
 | Varianten | Bis zu 3 pro Projekt (Tabs), Vergleichsansicht nebeneinander |
 | Export | PNG, **TIFF** und PDF (1 Seite) mit Massen, Datum und Hinweis „Vorschau, Massangaben ca. ±X cm“ (X einstellbar, Standard 5); Teilen über die Web Share API, sonst Download |
 | Projekte | Automatisch lokal gespeichert (IndexedDB): Liste, Öffnen, Duplizieren, Löschen, „Alle lokalen Daten löschen“ |
