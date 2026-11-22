@@ -4,11 +4,13 @@ import {
   panBy,
   pinchView,
   zoomAt,
+  toImage,
   zoomLimits,
   type Pt,
   type Size,
   type View,
 } from '../math/view'
+import type { Layer } from './layer'
 
 const TAP_MS = 300
 const TAP_SLOP = 10
@@ -33,6 +35,35 @@ export class Viewport {
   private lastTap = { t: 0, x: 0, y: 0 }
   private downAt = 0
   private raf = 0
+  private layers: Layer[] = []
+  private active: Layer | null = null
+  private claimed = false
+  private tapHandler: ((p: Pt) => void) | null = null
+
+  addLayer(layer: Layer): void {
+    this.layers.push(layer)
+  }
+
+  setTapHandler(fn: ((p: Pt) => void) | null): void {
+    this.tapHandler = fn
+  }
+
+  redraw(): void {
+    this.invalidate()
+  }
+
+  getView(): View {
+    return this.view
+  }
+
+  getSize(): Size {
+    return this.size
+  }
+
+  // Image point under the middle of the visible area.
+  centerImagePoint(): Pt {
+    return toImage(this.view, { x: this.size.w / 2, y: this.size.h / 2 })
+  }
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d')
@@ -91,6 +122,8 @@ export class Viewport {
     ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.tx, dpr * view.ty)
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(this.img, 0, 0)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    for (const layer of this.layers) layer.draw(ctx, view)
     canvas.dataset.scale = view.scale.toFixed(4)
     canvas.dataset.tx = view.tx.toFixed(1)
     canvas.dataset.ty = view.ty.toFixed(1)
@@ -123,6 +156,20 @@ export class Viewport {
     this.pointers.set(e.pointerId, this.local(e))
     this.travel.set(e.pointerId, 0)
     this.downAt = performance.now()
+    if (this.pointers.size === 1) {
+      this.claimed = false
+      const p = toImage(this.view, this.local(e))
+      for (const layer of [...this.layers].reverse()) {
+        if (layer.down(p, this.view)) {
+          this.active = layer
+          this.claimed = true
+          break
+        }
+      }
+    } else if (this.active) {
+      this.active.up()
+      this.active = null
+    }
     this.startPinch()
   }
 
@@ -133,7 +180,9 @@ export class Viewport {
     this.pointers.set(e.pointerId, cur)
     this.travel.set(e.pointerId, (this.travel.get(e.pointerId) ?? 0) + Math.hypot(cur.x - prev.x, cur.y - prev.y))
 
-    if (this.pointers.size === 1) {
+    if (this.active && this.pointers.size === 1) {
+      this.active.move(toImage(this.view, cur), this.view)
+    } else if (this.pointers.size === 1) {
       this.apply(panBy(this.view, cur.x - prev.x, cur.y - prev.y))
     } else if (this.pinch) {
       const a1 = this.pointers.get(this.pinch.ids[0])
@@ -148,12 +197,19 @@ export class Viewport {
     const pos = this.pointers.get(e.pointerId)
     if (!pos) return
     const now = performance.now()
+    if (this.active) {
+      this.active.up()
+      this.active = null
+    }
     const wasTap =
+      !this.claimed &&
       this.pointers.size === 1 &&
       e.type === 'pointerup' &&
       (this.travel.get(e.pointerId) ?? 0) < TAP_SLOP &&
       now - this.downAt < TAP_MS
-    if (wasTap) {
+    if (wasTap && this.tapHandler) {
+      this.tapHandler(toImage(this.view, pos))
+    } else if (wasTap) {
       const near = Math.hypot(pos.x - this.lastTap.x, pos.y - this.lastTap.y) < DOUBLE_TAP_DIST
       if (now - this.lastTap.t < TAP_MS && near) {
         this.fit()

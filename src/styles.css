@@ -110,3 +110,143 @@ canvas {
   background: #fde8e8;
   color: #7a1010;
 }
+
+.bar {
+  flex-wrap: wrap;
+}
+
+.btn.primary {
+  background: #fca311;
+  color: #14213d;
+}
+
+.sheet {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+  max-height: 60%;
+  margin-inline: auto;
+  padding: 12px;
+  overflow-y: auto;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  touch-action: auto;
+}
+
+.sheet[hidden],
+.loupe[hidden] {
+  display: none;
+}
+
+.sheet p {
+  margin: 0;
+}
+
+.sheet .btn {
+  background: #e9e7e1;
+}
+
+.sheet .btn.primary {
+  background: #fca311;
+}
+
+.sheet .btn:disabled {
+  opacity: 0.45;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.field {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.875rem;
+}
+
+.field input,
+.row select {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid #8a877d;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 1rem;
+  background: #fff;
+}
+
+.field input[type='range'] {
+  padding: 0;
+  border: 0;
+}
+
+.field input[aria-invalid='true'] {
+  border-color: #b00020;
+}
+
+.row output {
+  min-width: 52px;
+  padding-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.step {
+  font-weight: 600;
+}
+
+.hint {
+  font-size: 0.875rem;
+  color: #3a3a3a;
+}
+
+.note {
+  min-height: 1.25em;
+  font-size: 0.875rem;
+  color: #7a4b00;
+}
+
+.note.error {
+  color: #b00020;
+  font-weight: 600;
+}
+
+.readout {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.loupe {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 120px;
+  height: 120px;
+  overflow: hidden;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.loupe.right {
+  left: auto;
+  right: 12px;
+}
+
+.loupe canvas {
+  position: static;
+  width: 100%;
+  height: 100%;
+}

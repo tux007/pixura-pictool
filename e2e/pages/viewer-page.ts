@@ -11,8 +11,24 @@ export class ViewerPage {
   readonly fileInput: Locator
   readonly fitButton: Locator
   readonly alert: Locator
+  readonly calibrateButton: Locator
+  readonly motifInput: Locator
+  readonly distanceInput: Locator
+  readonly applyButton: Locator
+  readonly cancelButton: Locator
+  readonly widthInput: Locator
+  readonly heightInput: Locator
+  readonly readout: Locator
 
   constructor(readonly page: Page) {
+    this.calibrateButton = page.getByRole('button', { name: 'Kalibrieren' })
+    this.motifInput = page.getByTestId('motif-input')
+    this.distanceInput = page.getByLabel('Echte Distanz')
+    this.applyButton = page.getByRole('button', { name: 'Übernehmen' })
+    this.cancelButton = page.getByRole('button', { name: 'Abbrechen' })
+    this.widthInput = page.getByTestId('width')
+    this.heightInput = page.getByTestId('height')
+    this.readout = page.getByTestId('readout')
     this.canvas = page.getByTestId('viewport')
     this.fileInput = page.getByTestId('file-input')
     this.fitButton = page.getByRole('button', { name: 'Einpassen' })
