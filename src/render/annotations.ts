@@ -31,7 +31,11 @@ export const fmtCm = (cm: number): string => `${formatNumber(cm, Math.abs(cm) >=
 // Minimum distances are whole numbers in the data sheet; keep them without decimals.
 export const fmtMin = (cm: number): string => (Number.isInteger(cm) ? `${cm} cm` : fmtCm(cm))
 
-function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, u: number, color = '#fff'): void {
+interface Rect { x: number; y: number; w: number; h: number }
+
+const hit = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, u: number, color = '#fff', taken?: Rect[]): Rect {
   ctx.font = `600 ${13 * u}px system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -41,6 +45,17 @@ function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, u: number, co
   ctx.strokeText(text, p.x, p.y)
   ctx.fillStyle = color
   ctx.fillText(text, p.x, p.y)
+  const w = ctx.measureText(text).width + 6 * u
+  const r = { x: p.x - w / 2, y: p.y - 9 * u, w, h: 18 * u }
+  taken?.push(r)
+  return r
+}
+
+// Rect a label of this text would occupy at p (same font as label()).
+function extent(ctx: CanvasRenderingContext2D, text: string, p: Pt, u: number): Rect {
+  ctx.font = `600 ${13 * u}px system-ui, sans-serif`
+  const w = ctx.measureText(text).width + 6 * u
+  return { x: p.x - w / 2, y: p.y - 9 * u, w, h: 18 * u }
 }
 
 function stroke(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, u: number, color: string, dashed = false): void {
@@ -73,6 +88,8 @@ export function drawAnnotations(a: Annotations): void {
   const { ctx, map, unit: u, cal, img, box, guides } = a
   ctx.save()
   ctx.lineCap = 'round'
+  const taken: Rect[] = []
+  const pending: { text: string; a: Pt; b: Pt }[] = []
 
   // forbidden strip between each guide line and its minimum-distance line
   if (a.rules?.enabled) {
@@ -91,8 +108,7 @@ export function drawAnnotations(a: Annotations): void {
       ctx.fillStyle = FORBIDDEN
       ctx.fill()
       stroke(ctx, lim[0], lim[1], u, LIMIT, true)
-      const at = { x: lim[0].x + (lim[1].x - lim[0].x) * 0.5, y: lim[0].y + (lim[1].y - lim[0].y) * 0.5 }
-      label(ctx, `min. ${fmtMin(minDistance(kind, a.rules))}`, at, u, '#ffd0d0')
+      pending.push({ text: `min. ${fmtMin(minDistance(kind, a.rules))}`, a: lim[0], b: lim[1] })
     }
   }
 
@@ -102,7 +118,7 @@ export function drawAnnotations(a: Annotations): void {
     const [p, q] = guideEndpoints(cal, img, kind, v).map(map) as [Pt, Pt]
     if (!finite(p) || !finite(q)) continue
     stroke(ctx, p, q, u, GUIDE, true)
-    label(ctx, GUIDE_SHORT[kind], { x: p.x + (q.x - p.x) * 0.08, y: p.y + (q.y - p.y) * 0.08 }, u, '#a5f3fc')
+    label(ctx, GUIDE_SHORT[kind], { x: p.x + (q.x - p.x) * 0.08, y: p.y + (q.y - p.y) * 0.08 }, u, '#a5f3fc', taken)
   }
 
   if (box && a.showDims) {
@@ -120,7 +136,7 @@ export function drawAnnotations(a: Annotations): void {
       const ob = { x: pb.x + dx * o, y: pb.y + dy * o }
       if (!finite(oa) || !finite(ob)) return
       dimension(ctx, oa, ob, u, DIM)
-      label(ctx, text, { x: (oa.x + ob.x) / 2 + dx * 12 * u, y: (oa.y + ob.y) / 2 + dy * 12 * u }, u)
+      label(ctx, text, { x: (oa.x + ob.x) / 2 + dx * 12 * u, y: (oa.y + ob.y) / 2 + dy * 12 * u }, u, '#fff', taken)
     }
     side('sw', 'se', fmtCm(box.w))
     side('se', 'ne', fmtCm(box.h))
@@ -133,8 +149,16 @@ export function drawAnnotations(a: Annotations): void {
       dimension(ctx, p, q, u, color)
       const vertical = Math.abs(q.y - p.y) >= Math.abs(q.x - p.x)
       const at = { x: (p.x + q.x) / 2 + (vertical ? 24 * u : 0), y: (p.y + q.y) / 2 + (vertical ? 0 : -12 * u) }
-      label(ctx, fmtCm(d.cm), at, u, d.cm < 0 ? NEGATIVE : '#fff')
+      label(ctx, fmtCm(d.cm), at, u, d.cm < 0 ? NEGATIVE : '#fff', taken)
     }
+  }
+
+  // minimum-distance labels go last and slide along their line until nothing is covered
+  for (const m of pending) {
+    const spots = [0.5, 0.3, 0.7, 0.18, 0.82, 0.1, 0.9]
+    const at = (t: number): Pt => ({ x: m.a.x + (m.b.x - m.a.x) * t, y: m.a.y + (m.b.y - m.a.y) * t })
+    const free = spots.find((t) => !taken.some((r) => hit(r, extent(ctx, m.text, at(t), u)))) ?? 0.5
+    label(ctx, m.text, at(free), u, '#ffd0d0', taken)
   }
   ctx.restore()
 }
