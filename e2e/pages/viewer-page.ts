@@ -55,9 +55,32 @@ export class ViewerPage {
     await this.page.getByTestId('menu-projects').click()
   }
 
+  // The four corners of the "wall" are a screen rectangle of widthCm x heightCm pixels around the
+  // view centre, so afterwards 1 screen pixel = 1 cm and wall coordinates start at the rectangle's
+  // top-left corner. The guide lines are set from the wall.
+  async calibrateWall(widthCm = 400, heightCm = 300): Promise<{ x: number; y: number }> {
+    await this.calibrateButton.click()
+    const c = await this.center()
+    const hw = widthCm / 2
+    const hh = heightCm / 2
+    for (const [dx, dy] of [
+      [-hw, -hh],
+      [hw, -hh],
+      [hw, hh],
+      [-hw, hh],
+    ] as const) {
+      await this.page.mouse.click(c.x + dx, c.y + dy)
+    }
+    await this.page.getByLabel('Wandbreite').fill(String(widthCm))
+    await this.page.getByLabel('Wandhöhe').fill(String(heightCm))
+    await this.applyButton.click()
+    return c
+  }
+
   // Two taps 300 screen px apart for 300 cm: afterwards 1 screen pixel = 1 cm.
   async calibrateLinear(distance = '300'): Promise<{ x: number; y: number }> {
     await this.calibrateButton.click()
+    await this.page.getByTestId('mode-linear').click()
     const c = await this.center()
     await this.page.mouse.click(c.x - 150, c.y - 100)
     await this.page.mouse.click(c.x + 150, c.y - 100)

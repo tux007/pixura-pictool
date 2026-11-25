@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { calibratePerspective } from './perspective'
-import { guideDistances, guideEndpoints, guideValueAt } from './guides'
+import { wallToImage } from './calibration'
+import { guideDistances, guideEndpoints, guidesFromWall, guideValueAt } from './guides'
 import type { Box } from './motif'
 import type { Pt } from './view'
 
@@ -53,6 +54,47 @@ describe('guideValueAt', () => {
     expect(guideValueAt('ceiling', p)).toBe(34)
     expect(guideValueAt('left', p)).toBe(12)
     expect(guideValueAt('right', p)).toBe(12)
+  })
+})
+
+describe('guidesFromWall', () => {
+  const quad: [Pt, Pt, Pt, Pt] = [
+    { x: 500, y: 300 },
+    { x: 1500, y: 320 },
+    { x: 1520, y: 800 },
+    { x: 480, y: 780 },
+  ]
+  const img = { w: 2000, h: 1000 }
+
+  it('takes ceiling, floor and the inner corners from a whole-wall calibration', () => {
+    const r = calibratePerspective(quad, 420, 260, img, { wall: true })
+    if (!r.ok) throw new Error('calibration failed')
+    expect(r.calibration.wall).toBe(true)
+    expect(guidesFromWall(r.calibration)).toEqual({ ceiling: 0, floor: 260, left: 0, right: 420 })
+  })
+
+  it('returns nothing for another rectangle or a plain distance', () => {
+    const r = calibratePerspective(quad, 90, 210, img)
+    if (!r.ok) throw new Error('calibration failed')
+    expect(r.calibration.wall).toBeUndefined()
+    expect(guidesFromWall(r.calibration)).toEqual({})
+    expect(guidesFromWall({ mode: 'linear', pxPerCm: 2 })).toEqual({})
+  })
+
+  it('the lines sit exactly on the clicked corners', () => {
+    const r = calibratePerspective(quad, 420, 260, img, { wall: true })
+    if (!r.ok) throw new Error('calibration failed')
+    const g = guidesFromWall(r.calibration)
+    const [a, b] = guideEndpoints(r.calibration, img, 'floor', g.floor ?? NaN)
+    // the floor line through the two bottom corners passes through them in the image
+    const bl = wallToImage(r.calibration, { x: 0, y: g.floor ?? NaN })
+    const br = wallToImage(r.calibration, { x: 420, y: g.floor ?? NaN })
+    expect(bl.x).toBeCloseTo(480, 4)
+    expect(bl.y).toBeCloseTo(780, 4)
+    expect(br.x).toBeCloseTo(1520, 4)
+    expect(br.y).toBeCloseTo(800, 4)
+    expect(a.y).toBeCloseTo(g.floor ?? NaN)
+    expect(b.y).toBeCloseTo(g.floor ?? NaN)
   })
 })
 

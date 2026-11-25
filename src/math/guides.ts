@@ -81,6 +81,13 @@ export function guideDistances(box: Box, guides: Guides): Distance[] {
   return out
 }
 
+// A calibration on the whole wall already knows where ceiling, floor and both inner corners are:
+// the rectangle's edges, in wall coordinates (origin top-left, y down).
+export function guidesFromWall(cal: Calibration): Guides {
+  if (cal.mode !== 'perspective' || !cal.wall) return {}
+  return { ceiling: 0, floor: cal.heightCm, left: 0, right: cal.widthCm }
+}
+
 // Two wall points that span the photo along the line, so it can be drawn edge to edge.
 export function guideEndpoints(cal: Calibration, img: Size, kind: GuideKind, v: number): [Pt, Pt] {
   const horiz = isHorizontal(kind)

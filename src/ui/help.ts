@@ -4,8 +4,8 @@ const TIPS: [string, string][] = [
   ['Frontal fotografieren.', 'Stell dich gerade vor die Wand, nicht von der Seite. Das Handy oder Tablet möglichst parallel zur Wand halten.'],
   ['Die ganze Wand ins Bild nehmen.', 'Boden, Decke und beide Wandkanten sollten sichtbar sein, wenn du dort Abstände messen willst.'],
   ['Nicht im Ultraweitwinkel-Modus.', 'Die normale Kamera (1×) verwenden. Der Ultraweitwinkel verzerrt zum Rand hin, das Tool korrigiert das nicht.'],
-  ['Eine Referenz sichtbar lassen.', 'Massband, Türrahmen oder zwei Malerkrepp-Markierungen mit bekanntem Abstand. Je grösser die Referenz, desto genauer, am besten mindestens ca. 1 m.'],
-  ['Bei schrägem Foto ein Rechteck verwenden.', 'Tür, Fenster oder eine markierte Fläche mit bekannter Breite und Höhe: dann den Modus „Rechteck (4 Punkte)“ wählen.'],
+  ['Die Wand mit dem Laser ausmessen.', 'Breite und Höhe der Wand messen und in der App eingeben. Mit den vier Wandecken als Referenz stimmt die Grösse auch bei leicht schrägem Foto, und Decke, Boden und Innenecken werden von selbst als Hilfslinien gesetzt.'],
+  ['Zwei Punkte nur als Notlösung.', 'Eine einzelne Strecke stimmt nur bei streng frontalem Foto, sonst weichen die Masse zum Rand hin ab (bei 10° Schräge etwa ±10 %). Wenn die Wandecken nicht sichtbar sind, ist ein anderes Rechteck (Tür, Fenster) mit bekannter Breite und Höhe besser.'],
   ['Foto nicht zuschneiden.', 'Ein unbeschnittenes Foto macht die Perspektive-Prüfung zuverlässiger.'],
 ]
 

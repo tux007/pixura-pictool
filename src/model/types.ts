@@ -19,6 +19,8 @@ export interface PerspectiveCalibration {
   heightCm: number
   quad: Pt[]
   quality: PerspectiveQuality
+  // the rectangle is the whole wall (ceiling, floor, both inner corners): guide lines follow from it
+  wall?: boolean
 }
 
 export type Calibration = LinearCalibration | PerspectiveCalibration

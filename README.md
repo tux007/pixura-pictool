@@ -12,7 +12,7 @@ Web-Tool für den Kundentermin: Wandfoto laden, eine bekannte Strecke oder ein b
 | Bereich | Inhalt |
 | --- | --- |
 | Bilder | Wandfoto und Motiv als JPEG, PNG, HEIC (wo der Browser es kann) oder **TIFF**. Dateiauswahl und Kamera, EXIF-Ausrichtung, intern max. 4096 px Kantenlänge, Pan und Pinch-Zoom |
-| Kalibrierung | **Strecke (2 Punkte)** für frontale Fotos, **Rechteck (4 Punkte)** mit Perspektive (Homographie), Lupe, Warnungen und Kalibrierfehler |
+| Kalibrierung | **Ganze Wand (4 Ecken, Standard)** mit Laser-Mass: rechnet die Perspektive heraus (Homographie) und setzt Decke, Boden und Innenecken automatisch. **Anderes Rechteck** (Tür, Fenster) und **Strecke (2 Punkte, Notlösung)** nur für streng frontale Fotos. Lupe, Warnungen, Kalibrierfehler und Plausibilitätsprüfung der Eingabe |
 | Motiv | Breite oder Höhe in cm/m eingeben, Seitenverhältnis sperrbar, Eckgriffe, Drehgriff, Deckkraft, Live-Masse |
 | Hilfslinien | Boden, Decke, linke und rechte Wandkante; zeigt die Abstände des Motivs in cm |
 | wallPen-Abstände | Prüft das Motiv gegen die Mindestabstände des wallPen-Druckers (Decke 40 cm, Innenecken je 10 cm, Boden 25 cm bzw. 30 cm mit Schiene, ab Oberkante der Fussleiste). Sperrzonen im Bild, Reserve je Seite, maximal mögliche Grösse und „Maximal einpassen“; Hinweise auch im Export |
@@ -102,7 +102,7 @@ npx lighthouse https://<deine-seite>.netlify.app --view
 Die App führt in **fünf Schritten** durch den Ablauf. Oben zeigt eine Schrittleiste, wo du bist (erledigte Schritte sind mit ✓ markiert, noch gesperrte ausgegraut). Unter der Leiste steht, was im Schritt zu tun ist. Unten gehst du mit „Weiter“ voran und mit „Zurück“ jederzeit einen Schritt zurück; ist „Weiter“ gesperrt, steht daneben, was noch fehlt. Erledigte Schritte lassen sich direkt in der Leiste antippen. Projekte und Anleitung liegen im Menü.
 
 1. **Foto:** aufnehmen oder wählen (Startkarte mit den zuletzt bearbeiteten Projekten).
-2. **Kalibrieren** (startet von selbst): entweder zwei Punkte einer bekannten Strecke (Referenz möglichst gross, ab ca. 1 m), oder im Modus „Rechteck“ die vier Ecken (oben links, oben rechts, unten rechts, unten links) einer Tür oder eines Fensters mit bekannter Breite und Höhe.
+2. **Kalibrieren** (startet von selbst): **Standard ist „Ganze Wand“.** Die vier Wandecken antippen (oben links, oben rechts, unten rechts, unten links) und Breite und Höhe der Wand eingeben, am besten mit dem Laser gemessen. Das rechnet die Perspektive heraus und setzt Decke, Boden und beide Innenecken automatisch als Hilfslinien. Alternativen: „Anderes Rechteck“ (Tür, Fenster oder markierte Fläche mit bekannter Breite und Höhe, die Wandlinien setzt du selbst) und „Strecke (2 Punkte)“ als Notlösung nur für streng frontale Fotos.
 3. **Motiv** laden, Breite oder Höhe eingeben und auf dem Foto platzieren. Optional: mit „+“ Varianten anlegen (z. B. in 2 m, 3 m und 4 m Breite).
 4. **Abstände:** Decke, Boden und beide Innenecken als Linien setzen. Das ist Pflicht, denn nur so lassen sich die wallPen-Mindestabstände prüfen. Das Tool zeigt, ob das Motiv sie einhält, wie gross es an seiner Stelle maximal werden darf, und kann es auf das Maximum einpassen.
 5. **Export** als PNG, TIFF oder PDF; bei mehreren Varianten zusätzlich der Vergleich. Unterschreitet das Motiv einen Mindestabstand, erscheint hier eine Warnung, der Export bleibt aber möglich.
@@ -134,7 +134,8 @@ e2e/           Playwright-Tests (Page Object Model)
 ## Bekannte Grenzen
 
 - **Genauigkeit:** Die Vorschau ist eine Näherung. Fehler der Referenz werden auf die ganze Wand hochgerechnet; deshalb eine möglichst grosse Referenz verwenden (mindestens ca. 1 m).
-- **Zwei-Punkt-Modus** nimmt ein frontal aufgenommenes Foto an. Bei schrägem Foto den Rechteck-Modus verwenden.
+- **Zwei-Punkt-Modus (Notlösung)** nimmt ein streng frontal aufgenommenes Foto an und liefert nur einen Massstab für das ganze Bild. Schon wenige Grad Schräge verfälschen die Masse zum Rand hin (bei 10° etwa ±10 %). Wo immer möglich die ganze Wand oder ein anderes bekanntes Rechteck verwenden.
+- **Ganze Wand:** Setzt voraus, dass die Wand ein Rechteck ist (rechtwinklige Ecken, waagrechte Decke). Bei schiefer Decke oder nicht rechtwinkligen Ecken stimmen die automatisch gesetzten Linien nicht ganz, sie lassen sich im Schritt „Abstände“ ziehen. Sind Ecken verdeckt (Möbel, Fussleiste), besser ein anderes Rechteck wählen.
 - **Objektivverzerrung** (Ultraweitwinkel) wird nicht korrigiert. Die Konsistenzprüfung im Rechteck-Modus nimmt den Bildhauptpunkt in der Bildmitte an und ist bei zugeschnittenen Fotos ungenauer.
 - **Rückprojektionsfehler:** Bei genau vier Punkten wird die Homographie exakt angepasst, der Fehler ist deshalb rechnerisch fast 0. Aussagekräftiger ist die Prüfung des Seitenverhältnisses.
 - **WebGL 2 ist nötig** (Safari ab 15, aktuelle Chrome/Firefox/Edge). Ohne WebGL 2 lassen sich Motive nicht darstellen.

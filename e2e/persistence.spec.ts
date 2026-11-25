@@ -103,6 +103,25 @@ test.describe('projects', () => {
     await expect(page.getByTestId('guide-floor')).toContainText('167 cm')
   })
 
+  test('keeps a whole-wall calibration together with its guide lines', async ({ page }) => {
+    const viewer = new ViewerPage(page)
+    await viewer.goto()
+    await viewer.loadPhoto(PHOTO)
+    await expect(viewer.canvas).toHaveAttribute('data-scale', /.+/)
+    await viewer.calibrateWall(400, 300)
+    await viewer.addMotif(PHOTO, 100)
+    await expect.poll(() => stored(page), { timeout: 20_000 }).toBe(1)
+
+    await page.reload()
+    await viewer.openProjects()
+    await page.getByTestId('project-open').click()
+    // calibrated, motif and all four lines: the project opens on the export step
+    await expect(page.getByTestId('step-export')).toHaveAttribute('data-state', 'current')
+    await viewer.goTo('distances')
+    await expect(page.getByTestId('guide-ceiling')).toContainText('Abstand 117 cm')
+    await expect(page.getByTestId('step-hint')).toContainText('aus der Wandkalibrierung')
+  })
+
   test('duplicates and deletes projects', async ({ page }) => {
     const { viewer } = await setup(page)
     await expect.poll(() => stored(page), { timeout: 20_000 }).toBe(1)
@@ -158,7 +177,7 @@ test.describe('help', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog).toContainText('So fotografierst du die Wand')
     await expect(dialog).toContainText('Ultraweitwinkel')
-    await expect(dialog).toContainText('Massband')
+    await expect(dialog).toContainText('Laser')
     await dialog.getByRole('button', { name: 'Schliessen' }).click()
     await expect(dialog).toHaveCount(0)
   })

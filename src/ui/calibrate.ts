@@ -17,7 +17,8 @@ const LOUPE = 120
 const ORANGE = '#fca311'
 const CORNER_NAMES = ['oben links', 'oben rechts', 'unten rechts', 'unten links'] as const
 
-type Mode = 'linear' | 'perspective'
+// wall: the four corners of the whole wall (default); rect: any other known rectangle; linear: one distance
+type Mode = 'wall' | 'rect' | 'linear'
 
 const WARNINGS: Record<PerspectiveWarning, string> = {
   'short-reference': 'Kurze Referenz (unter 1 m): Fehler werden auf die ganze Wand hochgerechnet.',
@@ -35,7 +36,7 @@ const ERRORS: Record<PerspectiveError, string> = {
 }
 
 export class CalibrationFlow implements Layer {
-  private mode: Mode = 'linear'
+  private mode: Mode = 'wall'
   private pts: Pt[] = []
   private drag = -1
   private grab: Pt = { x: 0, y: 0 }
@@ -44,8 +45,12 @@ export class CalibrationFlow implements Layer {
 
   private sheet = el('section', 'sheet')
   private step = el('p', 'sheet-step')
-  private modeLinear = el('button', 'btn', 'Strecke (2 Punkte)')
-  private modePersp = el('button', 'btn', 'Rechteck (4 Punkte)')
+  private modeWall = el('button', 'btn', 'Ganze Wand (4 Ecken)')
+  private modeRect = el('button', 'btn', 'Anderes Rechteck (4 Ecken)')
+  private modeLinear = el('button', 'btn', 'Strecke (2 Punkte, Notlösung)')
+  private hint = el('p', 'hint')
+  private labelW = el('span')
+  private labelH = el('span')
   private distance = el('input')
   private rectW = el('input')
   private rectH = el('input')
@@ -69,17 +74,12 @@ export class CalibrationFlow implements Layer {
     this.sheet.dataset.testid = 'calibration-sheet'
     this.sheet.hidden = true
 
-    const hint = el(
-      'p',
-      'hint',
-      'Referenz möglichst gross wählen (mindestens ca. 1 m), sonst werden Fehler auf die ganze Wand hochgerechnet. Das Foto nicht im Ultraweitwinkel aufnehmen.',
-    )
-
     const modes = el('div', 'row')
-    for (const b of [this.modeLinear, this.modePersp]) b.type = 'button'
+    for (const b of [this.modeWall, this.modeRect, this.modeLinear]) b.type = 'button'
+    this.modeWall.dataset.testid = 'mode-wall'
+    this.modeRect.dataset.testid = 'mode-rect'
     this.modeLinear.dataset.testid = 'mode-linear'
-    this.modePersp.dataset.testid = 'mode-perspective'
-    modes.append(this.modeLinear, this.modePersp)
+    modes.append(this.modeWall, this.modeRect, this.modeLinear)
 
     for (const i of [this.distance, this.rectW, this.rectH]) {
       i.type = 'text'
@@ -87,8 +87,6 @@ export class CalibrationFlow implements Layer {
       i.autocomplete = 'off'
     }
     this.distance.placeholder = 'z. B. 2,5'
-    this.rectW.placeholder = 'z. B. 90'
-    this.rectH.placeholder = 'z. B. 2,1 m'
     for (const u of ['cm', 'm']) this.unit.append(new Option(u, u))
     this.unit.setAttribute('aria-label', 'Einheit')
 
@@ -98,7 +96,13 @@ export class CalibrationFlow implements Layer {
       return l
     }
     this.linearRow.append(field('Echte Distanz', this.distance))
-    this.rectRow.append(field('Rechteck-Breite', this.rectW), field('Rechteck-Höhe', this.rectH))
+    // labels and placeholders change with the mode (wall or other rectangle)
+    const rectField = (label: HTMLSpanElement, input: HTMLInputElement): HTMLLabelElement => {
+      const l = el('label', 'field')
+      l.append(label, input)
+      return l
+    }
+    this.rectRow.append(rectField(this.labelW, this.rectW), rectField(this.labelH, this.rectH))
     const unitRow = el('div', 'row')
     unitRow.append(el('span', undefined, 'Einheit ohne Angabe:'), this.unit)
 
@@ -108,7 +112,7 @@ export class CalibrationFlow implements Layer {
     this.quality.dataset.testid = 'quality'
     const actions = el('div', 'row')
     actions.append(this.apply, this.cancel)
-    this.sheet.append(this.step, modes, hint, this.linearRow, this.rectRow, unitRow, this.note, this.quality, actions)
+    this.sheet.append(this.step, modes, this.hint, this.linearRow, this.rectRow, unitRow, this.note, this.quality, actions)
     // the markers must stay reachable: the sheet can be folded away on narrow or low screens
     collapsible(this.sheet, matchMedia(LOW_HEIGHT).matches)
 
@@ -130,8 +134,9 @@ export class CalibrationFlow implements Layer {
       })
     }
     this.unit.addEventListener('change', () => this.refresh())
+    this.modeWall.addEventListener('click', () => this.setMode('wall'))
+    this.modeRect.addEventListener('click', () => this.setMode('rect'))
     this.modeLinear.addEventListener('click', () => this.setMode('linear'))
-    this.modePersp.addEventListener('click', () => this.setMode('perspective'))
     this.apply.addEventListener('click', () => this.commit())
     this.cancel.addEventListener('click', () => this.finish(null))
   }
@@ -152,7 +157,7 @@ export class CalibrationFlow implements Layer {
     this.rectW.value = ''
     this.rectH.value = ''
     this.vp.setTapHandler((p) => this.place(p))
-    this.setMode('linear')
+    this.setMode('wall')
   }
 
   private setMode(m: Mode): void {
@@ -160,9 +165,28 @@ export class CalibrationFlow implements Layer {
     this.pts = []
     this.drag = -1
     this.linearRow.hidden = m !== 'linear'
-    this.rectRow.hidden = m !== 'perspective'
+    this.rectRow.hidden = m === 'linear'
+    this.modeWall.setAttribute('aria-pressed', String(m === 'wall'))
+    this.modeRect.setAttribute('aria-pressed', String(m === 'rect'))
     this.modeLinear.setAttribute('aria-pressed', String(m === 'linear'))
-    this.modePersp.setAttribute('aria-pressed', String(m === 'perspective'))
+    if (m === 'wall') {
+      this.hint.textContent =
+        'Die vier Ecken der ganzen Wand antippen und Breite und Höhe der Wand eingeben, am besten mit dem Laser gemessen. Decke, Boden und beide Innenecken werden danach automatisch als Hilfslinien gesetzt.'
+      this.labelW.textContent = 'Wandbreite'
+      this.labelH.textContent = 'Wandhöhe'
+      this.rectW.placeholder = 'z. B. 4,2 m'
+      this.rectH.placeholder = 'z. B. 2,6 m'
+    } else if (m === 'rect') {
+      this.hint.textContent =
+        'Vier Ecken eines Rechtecks mit bekannter Breite und Höhe antippen (Tür, Fenster, markierte Fläche). Je grösser das Rechteck, desto genauer. Die Wandlinien setzt du danach selbst.'
+      this.labelW.textContent = 'Rechteck-Breite'
+      this.labelH.textContent = 'Rechteck-Höhe'
+      this.rectW.placeholder = 'z. B. 90'
+      this.rectH.placeholder = 'z. B. 2,1 m'
+    } else {
+      this.hint.textContent =
+        'Notlösung: nur für streng frontale Fotos. Sonst weichen die Masse zum Rand hin ab (bei 10° Schräge etwa ±10 %). Besser die ganze Wand verwenden. Die Strecke möglichst gross wählen (ab ca. 1 m).'
+    }
     this.refresh()
   }
 
@@ -196,7 +220,13 @@ export class CalibrationFlow implements Layer {
     const w = this.len(this.rectW)
     const h = this.len(this.rectH)
     if (!a || !b || !c || !d || w === null || h === null || !this.image) return null
-    return calibratePerspective([a, b, c, d], w, h, { w: this.image.width, h: this.image.height })
+    return calibratePerspective(
+      [a, b, c, d],
+      w,
+      h,
+      { w: this.image.width, h: this.image.height },
+      { wall: this.mode === 'wall' },
+    )
   }
 
   private refresh(): void {
@@ -209,6 +239,10 @@ export class CalibrationFlow implements Layer {
           : n === 1
             ? 'Tippe den zweiten Punkt an.'
             : 'Marker ziehen zum Feinjustieren, dann die echte Distanz eingeben.'
+    } else if (this.mode === 'wall') {
+      this.step.textContent = done
+        ? 'Marker ziehen zum Feinjustieren, dann Breite und Höhe der Wand (Lasermass) eingeben.'
+        : `Tippe die Wandecke „${CORNER_NAMES[n]}“ an (Schnitt von ${n < 2 ? 'Decke' : 'Boden'} und ${n === 0 || n === 3 ? 'linker' : 'rechter'} Wand).`
     } else {
       this.step.textContent = done
         ? 'Marker ziehen zum Feinjustieren, dann Breite und Höhe des Rechtecks eingeben.'

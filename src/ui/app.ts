@@ -7,7 +7,7 @@ import { MotifRenderer } from '../gl/motif-renderer'
 import { LoadError, loadImage } from '../image/load'
 import { imageToWall, wallToImage, wallWidthCm } from '../math/calibration'
 import { checkRules, DEFAULT_RULES, describeCheck } from '../math/clearance'
-import { GUIDE_KINDS, GUIDE_SHORT, guideDistances } from '../math/guides'
+import { GUIDE_KINDS, GUIDE_SHORT, guideDistances, guidesFromWall } from '../math/guides'
 import { MAX_SIZE } from '../math/motif'
 import { formatNumber } from '../math/units'
 import { activeMotif, MAX_VARIANTS, type Calibration, type Project } from '../model/types'
@@ -322,6 +322,8 @@ export function mountApp(root: HTMLElement): void {
 
   function guideTexts(p: Progress): string {
     const m = activeMotif(project)
+    const cal = project.wall?.calibration
+    const wholeWall = cal?.mode === 'perspective' && !!cal.wall
     switch (step) {
       case 'photo':
         return p.hasWall
@@ -329,15 +331,20 @@ export function mountApp(root: HTMLElement): void {
           : 'Fotografiere die Wand frontal und ganz (nicht im Ultraweitwinkel) oder wähle ein vorhandenes Foto.'
       case 'calibrate':
         if (flow.active) return 'Folge der Anleitung im Fenster: Punkte antippen, echte Distanz eingeben, „Übernehmen“.'
-        return p.calibrated
-          ? 'Kalibriert. Weiter mit dem Motiv, oder neu kalibrieren, falls das Ergebnis nicht stimmt.'
-          : 'Zeige dem Tool ein bekanntes Mass: zwei Punkte einer Strecke (z. B. Massband) oder die vier Ecken eines Rechtecks (Tür, Fenster).'
+        if (p.calibrated) {
+          return wholeWall
+            ? 'Kalibriert mit der ganzen Wand. Decke, Boden und Innenecken sind schon als Hilfslinien gesetzt. Weiter mit dem Motiv.'
+            : 'Kalibriert. Weiter mit dem Motiv, oder neu kalibrieren, falls das Ergebnis nicht stimmt.'
+        }
+        return 'Miss die Wand mit dem Laser: Tippe die vier Wandecken an und gib Breite und Höhe der Wand ein. Nur wenn das nicht geht: ein anderes Rechteck (Tür, Fenster) oder zwei Punkte.'
       case 'motif':
         return m
           ? 'Schiebe das Motiv an die richtige Stelle und passe die Grösse an (Eckgriffe oder Masse). Optional: mit „+“ weitere Varianten anlegen, z. B. in anderer Grösse.'
           : 'Wähle das Motiv, das gedruckt werden soll (JPEG, PNG oder TIFF).'
       case 'distances': {
-        const base = 'Setze Decke, Boden und beide Innenecken, damit das Tool die wallPen-Mindestabstände prüft.'
+        const base = wholeWall
+          ? 'Decke, Boden und Innenecken stammen aus der Wandkalibrierung. Prüfe sie und ziehe sie bei Bedarf an die richtige Stelle (z. B. bei schiefer Decke).'
+          : 'Setze Decke, Boden und beide Innenecken, damit das Tool die wallPen-Mindestabstände prüft.'
         if (p.linesSet < LINES_NEEDED) return `${base} Noch ${LINES_NEEDED - p.linesSet} von ${LINES_NEEDED} Linien offen.`
         const r = m ? checkRules(m.box, project.guides, project.rules) : null
         if (r?.state === 'violated') return `${base} Achtung: Das Motiv unterschreitet einen Mindestabstand.`
@@ -647,7 +654,11 @@ export function mountApp(root: HTMLElement): void {
           m.box = { ...m.box, x: at.x, y: at.y }
         }
       }
-      if (Object.keys(project.guides).length) {
+      // A calibration on the whole wall knows ceiling, floor and both inner corners: set them.
+      const fromWall = guidesFromWall(cal)
+      if (Object.keys(fromWall).length) {
+        project.guides = fromWall
+      } else if (Object.keys(project.guides).length) {
         project.guides = {}
         showError('Die Hilfslinien wurden zurückgesetzt, weil sich die Kalibrierung geändert hat.')
       }

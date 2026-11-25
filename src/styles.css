@@ -325,27 +325,22 @@ body {
   color: #4a4a4a;
 }
 
+/* every panel can be folded away, so the photo is never covered (corners at the photo edge!) */
 .sheet-toggle {
-  display: none;
+  display: block;
+  flex: none;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: #e9e7e1;
+  color: var(--bar);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-@media (max-width: 899px) {
-  .sheet-toggle {
-    display: block;
-    flex: none;
-    min-height: 44px;
-    border: 0;
-    border-radius: 10px;
-    background: #e9e7e1;
-    color: var(--bar);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .sheet.collapsed > :not(.sheet-toggle) {
-    display: none;
-  }
+.sheet.collapsed > :not(.sheet-toggle) {
+  display: none;
 }
 
 @media (max-width: 720px) {
@@ -903,6 +898,11 @@ dialog.compare::backdrop {
     max-width: none;
     max-height: none;
     margin: 0;
+  }
+
+  /* folded: the docked panel shrinks to its handle instead of staying full height */
+  .sheet.collapsed {
+    bottom: auto;
   }
 
   .loupe.right {

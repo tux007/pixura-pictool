@@ -55,7 +55,13 @@ export function sideScaleRatio(h: Mat3, img: Size): number | null {
 
 // Four clicked corners (top-left, top-right, bottom-right, bottom-left, clockwise on screen) of
 // a rectangle with known width and height. Wall coordinates: cm, origin at the rectangle's top-left.
-export function calibratePerspective(quad: Quad, widthCm: number, heightCm: number, img: Size): PerspectiveResult {
+export function calibratePerspective(
+  quad: Quad,
+  widthCm: number,
+  heightCm: number,
+  img: Size,
+  opts: { wall?: boolean } = {},
+): PerspectiveResult {
   if (!(widthCm > 0 && heightCm > 0) || !Number.isFinite(widthCm) || !Number.isFinite(heightCm)) {
     return { ok: false, error: 'bad-size' }
   }
@@ -134,7 +140,16 @@ export function calibratePerspective(quad: Quad, widthCm: number, heightCm: numb
 
   return {
     ok: true,
-    calibration: { mode: 'perspective', h, hInv, widthCm, heightCm, quad: [...quad], quality },
+    calibration: {
+      mode: 'perspective',
+      h,
+      hInv,
+      widthCm,
+      heightCm,
+      quad: [...quad],
+      quality,
+      ...(opts.wall ? { wall: true } : {}),
+    },
     warnings,
   }
 }
