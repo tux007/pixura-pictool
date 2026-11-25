@@ -31,7 +31,12 @@ export const fmtCm = (cm: number): string => `${formatNumber(cm, Math.abs(cm) >=
 // Minimum distances are whole numbers in the data sheet; keep them without decimals.
 export const fmtMin = (cm: number): string => (Number.isInteger(cm) ? `${cm} cm` : fmtCm(cm))
 
-interface Rect { x: number; y: number; w: number; h: number }
+interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
 
 const hit = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
@@ -84,6 +89,11 @@ function dimension(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, u: number, color
 
 const finite = (p: Pt): boolean => Number.isFinite(p.x) && Number.isFinite(p.y)
 
+const along = (a: Pt, b: Pt, t: number, ox = 0, oy = 0): Pt => ({
+  x: a.x + (b.x - a.x) * t + ox,
+  y: a.y + (b.y - a.y) * t + oy,
+})
+
 export function drawAnnotations(a: Annotations): void {
   const { ctx, map, unit: u, cal, img, box, guides } = a
   ctx.save()
@@ -108,7 +118,12 @@ export function drawAnnotations(a: Annotations): void {
       ctx.fillStyle = FORBIDDEN
       ctx.fill()
       stroke(ctx, lim[0], lim[1], u, LIMIT, true)
-      pending.push({ text: `min. ${fmtMin(minDistance(kind, a.rules))}`, a: lim[0], b: lim[1] })
+      pending.push({
+        text: `min. ${fmtMin(minDistance(kind, a.rules))}`,
+        // middle of the forbidden strip: clear of both lines, even when the motif touches the limit
+        a: along(edge[0], lim[0], 0.5),
+        b: along(edge[1], lim[1], 0.5),
+      })
     }
   }
 
@@ -121,8 +136,33 @@ export function drawAnnotations(a: Annotations): void {
     label(ctx, GUIDE_SHORT[kind], { x: p.x + (q.x - p.x) * 0.08, y: p.y + (q.y - p.y) * 0.08 }, u, '#a5f3fc', taken)
   }
 
+  const SPOTS = [0.5, 0.3, 0.7, 0.15, 0.85]
+  // first spot along a line where the text covers no other label and no distance line
+  const place = (text: string, at: (t: number) => Pt, color: string, own = -1): void => {
+    const clear = (t: number): boolean => {
+      const r = extent(ctx, text, at(t), u)
+      return !taken.some((o) => hit(r, o)) && !lines.some((l, i) => i !== own && hit(r, l))
+    }
+    label(ctx, text, at(SPOTS.find(clear) ?? 0.5), u, color, taken)
+  }
+  const lines: Rect[] = []
+
   if (box && a.showDims) {
     const c = map({ x: box.x, y: box.y })
+    const dists: { p: Pt; q: Pt; cm: number }[] = []
+    for (const d of guideDistances(box, guides)) {
+      const p = map(d.from)
+      const q = map(d.to)
+      if (!finite(p) || !finite(q)) continue
+      dists.push({ p, q, cm: d.cm })
+      const m = 5 * u
+      lines.push({
+        x: Math.min(p.x, q.x) - m,
+        y: Math.min(p.y, q.y) - m,
+        w: Math.abs(p.x - q.x) + 2 * m,
+        h: Math.abs(p.y - q.y) + 2 * m,
+      })
+    }
     const side = (c1: Corner, c2: Corner, text: string): void => {
       const pa = map(cornerPoint(box, c1))
       const pb = map(cornerPoint(box, c2))
@@ -136,28 +176,36 @@ export function drawAnnotations(a: Annotations): void {
       const ob = { x: pb.x + dx * o, y: pb.y + dy * o }
       if (!finite(oa) || !finite(ob)) return
       dimension(ctx, oa, ob, u, DIM)
-      label(ctx, text, { x: (oa.x + ob.x) / 2 + dx * 12 * u, y: (oa.y + ob.y) / 2 + dy * 12 * u }, u, '#fff', taken)
+      place(text, (t) => along(oa, ob, t, dx * 12 * u, dy * 12 * u), '#fff')
     }
     side('sw', 'se', fmtCm(box.w))
     side('se', 'ne', fmtCm(box.h))
 
-    for (const d of guideDistances(box, guides)) {
-      const p = map(d.from)
-      const q = map(d.to)
-      if (!finite(p) || !finite(q)) continue
+    dists.forEach((d, i) => {
       const color = d.cm < 0 ? NEGATIVE : DIM
-      dimension(ctx, p, q, u, color)
-      const vertical = Math.abs(q.y - p.y) >= Math.abs(q.x - p.x)
-      const at = { x: (p.x + q.x) / 2 + (vertical ? 24 * u : 0), y: (p.y + q.y) / 2 + (vertical ? 0 : -12 * u) }
-      label(ctx, fmtCm(d.cm), at, u, d.cm < 0 ? NEGATIVE : '#fff', taken)
-    }
+      dimension(ctx, d.p, d.q, u, color)
+      const vertical = Math.abs(d.q.y - d.p.y) >= Math.abs(d.q.x - d.p.x)
+      place(
+        fmtCm(d.cm),
+        (t) => along(d.p, d.q, t, vertical ? 34 * u : 0, vertical ? 0 : -12 * u),
+        d.cm < 0 ? NEGATIVE : '#fff',
+        i,
+      )
+    })
   }
 
   // minimum-distance labels go last and slide along their line until nothing is covered
   for (const m of pending) {
     const spots = [0.5, 0.3, 0.7, 0.18, 0.82, 0.1, 0.9]
-    const at = (t: number): Pt => ({ x: m.a.x + (m.b.x - m.a.x) * t, y: m.a.y + (m.b.y - m.a.y) * t })
-    const free = spots.find((t) => !taken.some((r) => hit(r, extent(ctx, m.text, at(t), u)))) ?? 0.5
+    const at = (t: number): Pt => ({
+      x: m.a.x + (m.b.x - m.a.x) * t,
+      y: m.a.y + (m.b.y - m.a.y) * t,
+    })
+    const clear = (t: number): boolean => {
+      const r = extent(ctx, m.text, at(t), u)
+      return !taken.some((o) => hit(r, o)) && !lines.some((o) => hit(r, o))
+    }
+    const free = spots.find(clear) ?? 0.5
     label(ctx, m.text, at(free), u, '#ffd0d0', taken)
   }
   ctx.restore()
